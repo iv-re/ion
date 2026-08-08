@@ -1,0 +1,19 @@
+name: ion_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+workspace:
+  - packages/http_headers
+  - packages/http_sse
+  - packages/ion_extra
+  - packages/ion_hotreload
+  - packages/ion_openapi
+  - packages/ion_router
+  - packages/ion_test
+  - packages/ion_web
+  - packages/stream_web_socket_channel
+
+dev_dependencies:
+  pusk_lints: ^1.0.0

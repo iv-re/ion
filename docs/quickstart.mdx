@@ -1,0 +1,119 @@
+---
+title: Quickstart
+description: Create and run an HTTP server with ion
+---
+
+This guide walks through creating a working HTTP server with routing in a few minutes.
+
+## Prerequisites
+
+- Dart SDK >= 3.10.0
+
+## 1. Installation
+
+Add `ion_web` and `ion_router` to your `pubspec.yaml`:
+
+<Tabs>
+  <TabItem label="Dart CLI" value="cli">
+    ```bash
+    dart pub add ion_web ion_router
+    ```
+  </TabItem>
+  <TabItem label="pubspec.yaml" value="yaml">
+    ```yaml
+    dependencies:
+      ion_web: ^0.1.0
+      ion_router: ^0.1.0
+    ```
+  </TabItem>
+</Tabs>
+
+## 2. Create the Server
+
+Create `bin/server.dart`:
+
+```dart
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+Future<void> main() async {
+  final app = Router();
+
+  app.get('/', (req) => .text('Welcome to ion!'));
+
+  app.get('/hello/{name}', (req) {
+    final name = req.param('name');
+    return .text('Hello, $name!');
+  });
+
+  final server = await IonServer.serve(
+    app,
+    address: .loopbackIPv4,
+    port: 8080,
+  );
+
+  print('Server listening on http://${server.address.host}:${server.port}');
+}
+```
+
+## 3. Run & Test
+
+```bash
+dart run bin/server.dart
+```
+
+Test the endpoints:
+
+```bash
+curl http://localhost:8080/
+# Welcome to ion!
+
+curl http://localhost:8080/hello/Alex
+# Hello, Alex!
+```
+
+## 4. Hot Reload (Optional)
+
+During development, use `ion_hotreload` to reload the handler on code changes without restarting the server:
+
+```bash
+dart pub add ion_hotreload
+```
+
+```dart
+import 'package:ion_hotreload/ion_hotreload.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+Future<void> main() async {
+  final server = await IonServer.serve(
+    hotHandler(_buildApp),
+    address: .loopbackIPv4,
+    port: 8080,
+  );
+
+  print('Server listening on http://${server.address.host}:${server.port}');
+}
+
+Handler _buildApp() {
+  final app = Router();
+  app.get('/', (req) => .text('Welcome to ion!'));
+  return app;
+}
+```
+
+Run with `--enable-vm-service` or start in IDE debug mode to enable hot reload.
+
+## 5. What's Next?
+
+<CardGroup cols={3}>
+  <Card title="Requests" icon="arrow-right-to-bracket" href="/ion-web/request">
+    Read headers, query params, and body
+  </Card>
+  <Card title="Responses" icon="arrow-right-from-bracket" href="/ion-web/response">
+    Send JSON, streams, and files
+  </Card>
+  <Card title="Routing" icon="route" href="/ion-router/overview">
+    Add middleware and sub-routers
+  </Card>
+</CardGroup>

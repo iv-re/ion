@@ -1,0 +1,152 @@
+---
+title: ion_test
+description: In-process testing utilities for ion_web handlers
+---
+
+`ion_test` provides an in-process test client and a declarative `ionTest()` runner. Tests run without binding a real network socket, so they're fast and don't require port allocation.
+
+## Installation
+
+```yaml
+dev_dependencies:
+  ion_test: ^0.1.0
+  test: ^1.25.0
+```
+
+## Basic Example
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_test/ion_test.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('User API', () {
+    late Router app;
+
+    setUp(() {
+      app = Router()
+        ..get('/users', (req) => RawJson([{'id': 1, 'name': 'Alice'}]))
+        ..post('/users', (req) async {
+          final data = await req.rawJson<Map<String, dynamic>>();
+          return RawJson({'id': 2, ...data}, status: .created);
+        })
+        ..get('/events', (req) {
+          return Response.sse(() async* {
+            yield const SseEvent.text('Hello', event: 'greeting');
+          });
+        });
+    });
+
+    ionTest(
+      'GET /users returns list',
+      build: () => app.call,
+      act: (c) => c.get('/users'),
+      expect: () => RawJson([{'id': 1, 'name': 'Alice'}]),
+    );
+
+    ionTest(
+      'POST /users creates a user',
+      build: () => app.call,
+      act: (c) => c.post('/users', body: .rawJson({'name': 'Bob'})),
+      expect: () => RawJson({'id': 2, 'name': 'Bob'}, status: .created),
+    );
+
+    ionTest(
+      'GET /events streams SSE',
+      build: () => app.call,
+      act: (c) => c.get('/events'),
+      expect: () => Response.sse(() async* {
+        yield const SseEvent.text('Hello', event: 'greeting');
+      }),
+    );
+  });
+}
+```
+
+## `ionTest()` Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `description` | `String` | Test name |
+| `build` | `Handler Function()` | Returns the handler under test |
+| `act` | `FutureOr<Response> Function(IonTestClient)` | Sends a request via the test client |
+| `expect` | `Object Function()?` | Expected `Response` or `Matcher` |
+| `verify` | `void Function(Handler, Response)?` | Post-assertion callback |
+| `errors` | `Object Function()?` | Expected exception |
+| `setUp` | `FutureOr<void> Function()?` | Runs before `build` |
+| `tearDown` | `FutureOr<void> Function()?` | Cleanup after the test |
+| `wait` | `Duration?` | Delay before assertions (for async side effects) |
+| `comparators` | `List<ResponseComparator>?` | Per-test response comparators |
+
+## `IonTestClient` Methods
+
+| Method | Description |
+| --- | --- |
+| `.get(path, {query, headers})` | GET request |
+| `.post(path, {query, body, headers})` | POST request |
+| `.put(path, {query, body, headers})` | PUT request |
+| `.patch(path, {query, body, headers})` | PATCH request |
+| `.delete(path, {query, body, headers})` | DELETE request |
+| `.head(path, {query, headers})` | HEAD request |
+| `.options(path, {query, headers})` | OPTIONS request |
+| `.send(request)` | Send a raw `Request` |
+
+## `TestBody` Factories
+
+| Factory | Content-Type | Description |
+| --- | --- | --- |
+| `.empty()` | — | Empty body |
+| `.text(string)` | `text/plain` | UTF-8 text |
+| `.bytes(bytes)` | `application/octet-stream` | Raw bytes |
+| `.rawJson(data)` | `application/json` | Map, List, or primitive |
+| `.json(dto)` | `application/json` | `ToJson` DTO |
+| `.jsonList(dtos)` | `application/json` | `Iterable<ToJson>` |
+| `.formUrlEncoded(fields)` | `application/x-www-form-urlencoded` | URL-encoded form |
+| `.formData(fields)` | `multipart/form-data` | Multipart form with files |
+
+## Custom Response Comparators
+
+Register comparators globally or per-test for non-standard response types:
+
+```dart
+// By response subclass
+registerResponseComparator(
+  ResponseComparator.byType<XmlResponse>(
+    compare: (actual, expected) async {
+      final a = XmlDocument.parse(utf8.decode(await actual.readBytes()));
+      final e = XmlDocument.parse(utf8.decode(await expected.readBytes()));
+      expect(a.toXmlString(pretty: true), equals(e.toXmlString(pretty: true)));
+    },
+  ),
+);
+
+// By Content-Type
+registerResponseComparator(
+  ResponseComparator.byContentType(
+    'application/x-protobuf',
+    compare: (actual, expected) async {
+      final a = UserProto.fromBuffer(await actual.readBytes());
+      final e = UserProto.fromBuffer(await expected.readBytes());
+      expect(a, equals(e));
+    },
+  ),
+);
+
+// Per-test
+ionTest(
+  'GET /user/1 returns XML',
+  build: () => app.call,
+  act: (c) => c.get('/user/1'),
+  expect: () => XmlResponse(UserXmlDto(id: 1, name: 'Alice')),
+  comparators: [xmlResponseComparator],
+);
+```
+
+## Multipart Test Bodies (`FormDataPart`)
+
+| Factory | Description |
+| --- | --- |
+| `.field(value)` | Text form field |
+| `.file(bytes, {filename, contentType})` | File upload |

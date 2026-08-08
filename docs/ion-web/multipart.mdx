@@ -1,0 +1,69 @@
+---
+title: Multipart & File Uploads
+description: Processing file uploads and multipart form data in ion_web
+---
+
+`ion_web` includes a streaming multipart parser. Files up to `maxMemory` are kept in RAM; larger files are automatically spooled to a temporary file on disk to protect server memory.
+
+## Processing a Form Upload
+
+```dart
+app.post('/upload', (req) async {
+  if (!req.isMultipart) {
+    return .text('Expected multipart/form-data', status: .badRequest);
+  }
+
+  final form = await req.multipart(
+    maxMemory: 16 * 1024 * 1024, // 16 MB in-memory limit per file
+  );
+
+  try {
+    final username = form.field('username');   // text field
+    final avatar   = form.file('avatar');      // file field
+
+    if (avatar != null) {
+      final bytes = await avatar.bytes();
+      print('${avatar.filename} — ${avatar.size} bytes');
+    }
+
+    return .text('Upload successful');
+  } finally {
+    // Always clean up temporary disk files
+    await form.clean();
+  }
+});
+```
+
+<Warning>
+  Always call `await form.clean()` in a `finally` block. Forgetting it leaves temporary files on disk.
+</Warning>
+
+## Memory & Disk Spooling
+
+| File size | Storage | Type |
+| --- | --- | --- |
+| ≤ `maxMemory` | RAM | `InMemoryMultipartFile` |
+| > `maxMemory` | Temp file on disk | `DiskMultipartFile` |
+
+Use `file.isInMemory` / `file.isOnDisk` to distinguish them if needed.
+
+## `MultipartFile` API
+
+| Property / Method | Type | Description |
+| --- | --- | --- |
+| `filename` | `String?` | Original filename sent by the client |
+| `contentType` | `MediaType?` | Content-Type of the file part |
+| `size` | `int` | File size in bytes |
+| `isInMemory` | `bool` | `true` if data is held in RAM |
+| `isOnDisk` | `bool` | `true` if data is spooled to a temp file |
+| `bytes()` | `Future<Uint8List>` | Read full file into memory |
+| `text()` | `Future<String>` | Read file as UTF-8 string |
+| `openRead()` | `Stream<Uint8List>` | Stream the file in chunks |
+
+## `MultipartForm` API
+
+| Method | Description |
+| --- | --- |
+| `form.field(name)` | Returns the text value of a named field, or `null` |
+| `form.file(name)` | Returns the `MultipartFile` for a named field, or `null` |
+| `form.clean()` | Deletes any temporary disk files |

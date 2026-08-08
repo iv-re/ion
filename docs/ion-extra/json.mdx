@@ -1,0 +1,89 @@
+---
+title: JSON Requests & Responses
+description: Type-safe JSON parsing and serialization in ion_extra
+---
+
+## Parsing Request Bodies
+
+### `req.json<T>(fromJson)` — Single Object
+
+Decodes a JSON object and maps it through `fromJson`. Throws `ValidationErrors` on invalid JSON or validation failures:
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+
+class CreateUserDto {
+  CreateUserDto.fromJson(JsonObject json)
+      : name  = json.string('name', rules: [.length(min: 2, max: 50)]),
+        email = json.string('email', rules: [.email()]);
+
+  final String name;
+  final String email;
+}
+
+app.post('/users', (req) async {
+  final dto = await req.json(CreateUserDto.fromJson);
+  return RawJson({'id': newId(), 'name': dto.name}, status: .created);
+});
+```
+
+### `req.jsonList<T>(fromJson)` — Array
+
+Decodes a top-level JSON array and maps each element:
+
+```dart
+app.post('/users/batch', (req) async {
+  final users = await req.jsonList(CreateUserDto.fromJson);
+  return .text('Imported ${users.length} users');
+});
+```
+
+### `req.rawJson<T>()` — Raw Decode
+
+Decodes JSON without DTO mapping. Useful for proxies and webhooks:
+
+```dart
+app.post('/webhook', (req) async {
+  final payload = await req.rawJson<Map<String, Object?>>();
+  print('Webhook: $payload');
+  return const .status(.noContent);
+});
+```
+
+## Returning JSON Responses
+
+Implement `ToJson` on your response DTOs:
+
+```dart
+class UserDto implements ToJson {
+  UserDto({required this.id, required this.name, required this.email});
+
+  final String id;
+  final String name;
+  final String email;
+
+  @override
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'email': email};
+}
+
+// Single object → { ... }
+app.get('/users/{id}', (req) => Json(userDto));
+
+// Array → [ ... ]
+app.get('/users', (req) => JsonList(userList));
+
+// Raw map / list / primitive
+app.get('/status', (req) => RawJson({'status': 'ok', 'version': '1.0.0'}));
+```
+
+All three set `Content-Type: application/json` automatically.
+
+## Validation Error Accumulation
+
+By default, `req.json()` and `req.jsonList()` collect **all** validation errors before throwing, so clients receive a complete list of what's wrong in a single response.
+
+To throw on the first error instead:
+
+```dart
+RequestJsonExtractor.accumulateValidationErrors = false;
+```

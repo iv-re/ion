@@ -1,0 +1,18 @@
+name: ion_extra
+description: JSON parsing, query decoding, validation, and schema generation for ion_web.
+homepage: https://github.com/iv-re/ion
+repository: https://github.com/iv-re/ion/tree/main/packages/ion_extra
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  meta: ^1.12.0
+  equatable: ^2.1.0
+  ion_web: ^0.1.0
+  json_codable: ^0.1.0
+
+dev_dependencies:
+  test: ^1.25.6

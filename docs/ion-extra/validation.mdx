@@ -1,0 +1,116 @@
+---
+title: Validation
+description: Field validation rules in ion_extra
+---
+
+Validation rules are declared inline in DTO constructors using the `rules: [...]` parameter. When a rule fails, the field name and error code are collected into a `ValidationErrors` exception.
+
+## Defining Rules
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+
+class RegisterDto {
+  RegisterDto.fromJson(JsonObject json)
+      : username = json.string('username', rules: [
+          .length(min: 3, max: 20),
+          .regex(RegExp(r'^[a-zA-Z0-9_]+$')),
+        ]),
+        email    = json.string('email', rules: [.email()]),
+        password = json.string('password', rules: [.length(min: 8)]),
+        age      = json.integerOrNull('age', rules: [.range(min: 18, max: 120)]),
+        website  = json.stringOrNull('website', rules: [.url()]);
+
+  final String username;
+  final String email;
+  final String password;
+  final int? age;
+  final String? website;
+}
+```
+
+## Built-in Rules
+
+| Rule | Description |
+| --- | --- |
+| `.length({min, max, equal, message})` | String character length |
+| `.range({min, max, exclusiveMin, exclusiveMax, message})` | Numeric value range |
+| `.email([message])` | Email address format |
+| `.url([message])` | URL format |
+| `.ip([message])` / `.ipv4()` / `.ipv6()` | IP address format |
+| `.regex(RegExp, [message])` | Regular expression match |
+| `.contains(substring, [message])` | String must contain substring |
+| `.doesNotContain(substring, [message])` | String must not contain substring |
+| `.mustMatch(target, [message])` | String must equal another value |
+| `.creditCard([message])` | Credit card number (Luhn check) |
+| `.nonControlCharacter([message])` | String must not contain control characters |
+| `ValidationRule.custom((val) => ...)` | Custom function returning `ValidationError?` |
+
+## Custom Rule
+
+```dart
+final noSpaces = ValidationRule<String>.custom(
+  (value) => value.contains(' ')
+      ? const ValidationError(code: 'no_spaces', message: 'Must not contain spaces')
+      : null,
+);
+
+username = json.string('username', rules: [noSpaces]);
+```
+
+## Handling `ValidationErrors`
+
+`req.json()`, `req.jsonList()`, and `req.query()` throw `ValidationErrors` when rules fail. Catch it globally in `errorHandler`:
+
+```dart
+app.use(Middlewares.errorHandler(
+  onError: (req, error, stackTrace) {
+    if (error is ValidationErrors) {
+      return Json(error, status: .badRequest);
+    }
+    return const .status(.internalServerError);
+  },
+));
+```
+
+`ValidationErrors` implements `ToJson`, so `Json(error)` serializes it directly.
+
+## Response Format
+
+`ValidationErrors.toJson()` produces a flat object keyed by field name. Each field maps to a list of error objects (for scalar fields) or a nested structure (for objects and arrays):
+
+```json
+// POST /register with {"username": "ab", "email": "not-valid", "age": 10}
+{
+  "username": [
+    {"code": "length", "params": {"min": 3, "value": "ab"}}
+  ],
+  "email": [
+    {"code": "email", "params": {"value": "not-valid"}}
+  ],
+  "age": [
+    {"code": "range", "params": {"min": 18, "value": 10}}
+  ]
+}
+```
+
+For nested objects, the value is a recursive `ValidationErrors` structure instead of a list:
+
+```json
+// Nested object validation
+{
+  "address": {
+    "city": [
+      {"code": "required"}
+    ]
+  }
+}
+```
+
+Each error object contains:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `code` | `String` | Rule identifier (`length`, `email`, `range`, `required`, `regex`, etc.) |
+| `message` | `String?` | Custom message if provided in the rule |
+| `params` | `Map?` | Rule parameters and the offending value |

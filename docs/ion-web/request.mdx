@@ -1,0 +1,101 @@
+---
+title: Request
+description: Inspecting incoming HTTP requests in ion_web
+---
+
+Every handler receives a `Request` representing the incoming HTTP request. `Request` extends `Stream<Uint8List>`, so the body can be consumed as a raw byte stream.
+
+## Basic Properties
+
+```dart
+app.get('/inspect', (req) {
+  final method  = req.method;              // HttpMethod.get
+  final uri     = req.uri;                 // Uri
+  final path    = req.uri.path;            // '/inspect'
+  final version = req.version;             // HttpVersion.http11
+  final ip      = req.connectionInfo?.remoteAddress;
+
+  return .text('$method $path');
+});
+```
+
+## Headers (`req.headers`)
+
+`req.headers` is a `TypedHeaders` object with typed getters for standard HTTP headers:
+
+```dart
+app.get('/me', (req) {
+  final userAgent    = req.headers.userAgent;
+  final auth         = req.headers.authorization;
+  final contentType  = req.headers.contentType;
+  final host         = req.headers.host;
+
+  return .text('UA: $userAgent');
+});
+```
+
+## Query Parameters
+
+```dart
+// GET /search?q=dart&limit=10
+app.get('/search', (req) {
+  final q     = req.uri.queryParameters['q'];
+  final limit = req.uri.queryParameters['limit'] ?? '20';
+
+  return .text('q=$q limit=$limit');
+});
+```
+
+For typed query parsing with validation, see [ion_extra Query Parameters](/ion-extra/query).
+
+## Reading the Body
+
+### As Text
+
+```dart
+app.post('/echo', (req) async {
+  final body = await req.text();
+  return .text('Got: $body');
+});
+```
+
+> **Note**: `req.text()` consumes the body stream. It can only be read once.
+
+### As a Stream
+
+`Request` extends `Stream<Uint8List>`, so you can iterate it directly:
+
+```dart
+app.post('/upload', (req) async {
+  var totalBytes = 0;
+  await for (final chunk in req) {
+    totalBytes += chunk.length;
+  }
+  return .text('Received $totalBytes bytes');
+});
+```
+
+For JSON bodies, use [`req.json()`](/ion-extra/json). For multipart forms, use [`req.multipart()`](/ion-web/multipart).
+
+## Request Context (`req.ctx`)
+
+`req.ctx` is a `Context` — an immutable, type-keyed map for passing data down the middleware chain without coupling layers together.
+
+```dart
+// Set a value in middleware
+Middleware authGuard = (next) => (req) async {
+  final user = await verifyToken(req.headers.authorization);
+
+  return next(req.copyWith(
+    ctx: req.ctx.withValue('user', user),
+  ));
+};
+
+// Read the value in a handler
+app.get('/dashboard', (req) {
+  final user = req.ctx.value<User>('user');
+  return .text('Hello, ${user.name}!');
+});
+```
+
+Built-in middlewares (`requestId`, `clientIp`) also use `req.ctx` — see [Middleware](/ion-router/middleware).

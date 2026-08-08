@@ -1,0 +1,137 @@
+{
+  "$schema": "https://docs.page/schema.json",
+  "name": "ion",
+  "description": "HTTP web framework for Dart",
+  "sidebar": [
+    {
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/"
+        },
+        {
+          "title": "Quickstart",
+          "href": "/quickstart"
+        }
+      ]
+    },
+    {
+      "group": "ion_web",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/ion-web/overview"
+        },
+        {
+          "title": "Server",
+          "href": "/ion-web/server"
+        },
+        {
+          "title": "Request",
+          "href": "/ion-web/request"
+        },
+        {
+          "title": "Response",
+          "href": "/ion-web/response"
+        },
+        {
+          "title": "WebSocket",
+          "href": "/ion-web/websocket"
+        },
+        {
+          "title": "Server-Sent Events (SSE)",
+          "href": "/ion-web/sse"
+        },
+        {
+          "title": "Multipart & File Uploads",
+          "href": "/ion-web/multipart"
+        }
+      ]
+    },
+    {
+      "group": "ion_router",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/ion-router/overview"
+        },
+        {
+          "title": "Parameters & Wildcards",
+          "href": "/ion-router/parameters"
+        },
+        {
+          "title": "Middleware",
+          "href": "/ion-router/middleware"
+        },
+        {
+          "title": "Groups & Router Merging",
+          "href": "/ion-router/groups-and-merging"
+        },
+        {
+          "title": "Error Handling",
+          "href": "/ion-router/error-handling"
+        },
+        {
+          "title": "Introspection & Metadata",
+          "href": "/ion-router/introspection"
+        }
+      ]
+    },
+    {
+      "group": "ion_openapi",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/ion-openapi/overview"
+        },
+        {
+          "title": "Interactive API Documentation",
+          "href": "/ion-openapi/api-ui"
+        }
+      ]
+    },
+    {
+      "group": "ion_extra",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/ion-extra/overview"
+        },
+        {
+          "title": "Query Parameters",
+          "href": "/ion-extra/query"
+        },
+        {
+          "title": "JSON Requests & Responses",
+          "href": "/ion-extra/json"
+        },
+        {
+          "title": "Validation Rules",
+          "href": "/ion-extra/validation"
+        },
+        {
+          "title": "Schema Generation",
+          "href": "/ion-extra/schemas"
+        }
+      ]
+    },
+    {
+      "group": "ion_test",
+      "pages": [
+        {
+          "title": "Overview & Testing",
+          "href": "/ion-test/overview"
+        }
+      ]
+    },
+    {
+      "group": "ion_hotreload",
+      "pages": [
+        {
+          "title": "Hot Reload Setup",
+          "href": "/ion-hotreload/overview"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+---
+title: Error Handling
+description: Custom 404 and 405 responses in ion_router
+---
+
+## Not Found (`notFound`)
+
+By default, unmatched routes return `404 Not Found` with an empty body. Override with `notFound()`:
+
+```dart
+app.notFound((req) {
+  return .text(
+    'No route matched ${req.method.value} ${req.uri.path}',
+    status: .notFound,
+  );
+});
+```
+
+## Method Not Allowed (`methodNotAllowed`)
+
+When a route path exists but the HTTP method is not registered, ion_router returns `405 Method Not Allowed` with an `Allow` header listing the supported methods. Override with `methodNotAllowed()`:
+
+```dart
+app.methodNotAllowed((req) {
+  return .text(
+    '${req.method.value} is not allowed on ${req.uri.path}',
+    status: .methodNotAllowed,
+  );
+});
+```
+
+When using the default handler, the `Allow` header is set automatically. With a custom handler, you are responsible for setting it yourself if needed.
+
+## Unhandled Exceptions
+
+Runtime exceptions thrown inside handlers are not caught by the router. Use `Middlewares.errorHandler()` to catch them globally — see [Middleware](/ion-router/middleware).

@@ -1,0 +1,76 @@
+---
+title: ion_hotreload
+description: Hot reload for ion_web development servers
+---
+
+`ion_hotreload` rebuilds your handler on code changes without restarting the HTTP server or dropping active connections.
+
+## Installation
+
+```yaml
+dependencies:
+  ion_hotreload: ^0.1.0
+```
+
+## Usage
+
+Wrap your handler factory in `hotHandler()`:
+
+```dart
+import 'package:ion_hotreload/ion_hotreload.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+Future<void> main() async {
+  final server = await IonServer.serve(
+    hotHandler(_buildApp),
+    address: .loopbackIPv4,
+    port: 8080,
+  );
+
+  print('Server listening on http://localhost:8080');
+}
+
+Handler _buildApp() {
+  final app = Router();
+  app.get('/', (req) => .text('Hello World!'));
+  return app;
+}
+```
+
+Keep `_buildApp` pure — it's called again on every reload. Avoid storing state outside the factory.
+
+## How It Works
+
+- **Debug mode**: `hotHandler` watches source files for changes, calls `factory()` to rebuild the handler, and atomically swaps it in. Existing connections continue unaffected.
+- **Release mode** (`dart.vm.product = true`): `hotHandler` calls `factory()` once and returns the result directly — zero runtime overhead.
+
+## Running
+
+### IDE Debug Mode
+
+Start in **Debug Mode** in VS Code, IntelliJ, or Android Studio. Hot reload triggers automatically on file save.
+
+### Command Line
+
+```bash
+dart run --enable-vm-service bin/server.dart
+```
+
+## Options
+
+```dart
+hotHandler(
+  _buildApp,
+  watchPaths: ['lib', 'bin', 'src'],      // default: ['lib', 'bin', 'example', 'examples']
+  onReload: () => print('Reloaded!'),
+  logger: myLogger,
+)
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `factory` | `Handler Function()` | — | Called on each reload to produce the new handler |
+| `watchPaths` | `List<String>` | `['lib', 'bin', 'example', 'examples']` | Directories to watch for changes |
+| `onReload` | `FutureOr<void> Function()?` | `null` | Callback invoked after each successful reload |
+| `logger` | `Logger?` | `null` | Structured logger for reload events |

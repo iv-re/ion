@@ -1,0 +1,234 @@
+---
+title: Middleware
+description: Writing and composing middleware in ion_router
+---
+
+Middleware intercepts requests and responses. The `Middleware` type is:
+
+```dart
+typedef Middleware = Handler Function(Handler next);
+```
+
+## Writing Middleware
+
+```dart
+Middleware addPoweredBy = (next) => (req) async {
+  final response = await next(req);
+  return response.withHeaders([
+    const .custom('X-Powered-By', 'ion'),
+  ]);
+};
+
+app.use(addPoweredBy);
+```
+
+Call `next(req)` to pass the request to the next handler. You can modify the request before passing it, or the response before returning it.
+
+## Global & Scoped Middleware
+
+```dart
+final app = Router();
+
+// Applied to every route
+app.use(Middlewares.cors());
+app.use(Middlewares.requestId());
+
+// Applied only to routes registered on `admin`
+final admin = app.withMiddleware(authGuard);
+admin.get('/admin/stats', (req) => .text('Stats'));
+```
+
+`app.use()` must be called before registering any routes on that router instance.
+
+## Built-in Middlewares
+
+### `Middlewares.cors()`
+
+Adds CORS headers. Without arguments, allows all origins (`*`):
+
+```dart
+app.use(Middlewares.cors());
+
+// Custom options
+app.use(Middlewares.cors(CorsOptions(
+  allowedOrigins: ['https://myapp.com'],
+  allowedMethods: [.get, .post, .put, .delete],
+  allowedHeaders: [.contentType, .authorization],
+  allowCredentials: true,
+  maxAge: const Duration(hours: 1),
+)));
+
+// Custom origin validation function (allowedOrigins is ignored when set)
+app.use(Middlewares.cors(CorsOptions(
+  allowOriginFunc: (request, origin) => isAllowed(origin),
+)));
+
+// Fully permissive
+app.use(Middlewares.cors(CorsOptions.allowAll()));
+```
+
+`CorsOptions` also supports `exposedHeaders` (headers safe to expose to client scripts) and `optionsPassthrough` (forward OPTIONS preflight requests to the handler instead of responding automatically).
+
+### `Middlewares.logger()`
+
+Logs method, path, status, duration, and response size. Requires a `Logger` instance:
+
+```dart
+app.use(Middlewares.logger(logger: myLogger));
+```
+
+### `Middlewares.errorHandler()`
+
+Catches unhandled exceptions and returns a response. Without `onError`, returns `500 Internal Server Error`:
+
+```dart
+app.use(Middlewares.errorHandler(
+  logger: myLogger,
+  onError: (req, error, stackTrace) {
+    if (error is ValidationErrors) {
+      return Json(error, status: .badRequest);
+    }
+    return const .status(.internalServerError);
+  },
+));
+```
+
+### `Middlewares.basicAuth()`
+
+HTTP Basic Authentication. Either provide a `credentials` map or a custom `authenticator`:
+
+```dart
+// Static credentials map
+app.use(Middlewares.basicAuth(
+  credentials: {'admin': 'secret'},
+  realm: 'My API',
+));
+
+// Custom authenticator
+app.use(Middlewares.basicAuth(
+  authenticator: (username, password) => checkDb(username, password),
+));
+```
+
+### `Middlewares.requestId()`
+
+Assigns a unique ID to each request, sets it as a response header, and stores it in `req.ctx`:
+
+```dart
+app.use(Middlewares.requestId()); // header: X-Request-Id
+
+// Custom header name and ID generator
+app.use(Middlewares.requestId(
+  headerName: 'X-Trace-Id',
+  idGenerator: () => Uuid().v4(),
+));
+
+// Read in a handler
+app.get('/debug', (req) {
+  final id = req.ctx.requestId; // String
+  return .text('Request ID: $id');
+});
+```
+
+### `Middlewares.clientIp()`
+
+Resolves the client IP and stores it in `req.ctx`:
+
+```dart
+// Default: reads X-Real-IP header
+app.use(Middlewares.clientIp());
+
+// X-Forwarded-For with trusted CIDR subnets
+app.use(Middlewares.clientIp(
+  source: .xff(trustedPrefixes: ['10.0.0.0/8', '2606:4700::/32']),
+));
+
+// X-Forwarded-For with exact trusted proxy hop count
+app.use(Middlewares.clientIp(source: .xffTrustedProxies(2)));
+
+// Direct connection (no proxy)
+app.use(Middlewares.clientIp(source: .remoteAddr()));
+
+// Read in a handler
+app.get('/ip', (req) {
+  final ip = req.ctx.clientIp; // InternetAddress?
+  return .text('Your IP: $ip');
+});
+```
+
+### `Middlewares.timeout()`
+
+Returns `504 Gateway Timeout` if the handler takes too long:
+
+```dart
+app.use(Middlewares.timeout(const Duration(seconds: 15)));
+
+// Custom timeout response
+app.use(Middlewares.timeout(
+  const Duration(seconds: 10),
+  onTimeout: (req) => .text('Request took too long', status: .gatewayTimeout),
+));
+```
+
+### `Middlewares.bodyLimit()`
+
+Rejects requests whose body exceeds `maxBytes` with `413 Content Too Large`:
+
+```dart
+app.use(Middlewares.bodyLimit(10 * 1024 * 1024)); // 10 MB
+
+// Custom response
+app.use(Middlewares.bodyLimit(
+  1 * 1024 * 1024,
+  onExceeded: (req) => .text('Body too large', status: .contentTooLarge),
+));
+```
+
+---
+
+## Recommended Pipeline
+
+A typical production setup:
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+import 'package:sl/sl.dart'; // structured logging (https://pub.dev/packages/sl)
+
+final logger = Logger(handler: LogTextHandler(level: .debug));
+
+app
+  ..use(Middlewares.errorHandler(
+    logger: logger,
+    onError: (req, error, stackTrace) {
+      if (error is ValidationErrors) {
+        return Json(error, status: .badRequest);
+      }
+      return const .status(.internalServerError);
+    },
+  ))
+  ..use(Middlewares.cors())
+  ..use(Middlewares.requestId())
+  ..use(Middlewares.clientIp())
+  ..use(Middlewares.logger(logger: logger))
+  ..use(Middlewares.bodyLimit(10 * 1024 * 1024))
+  ..use(Middlewares.timeout(const Duration(seconds: 30)));
+```
+
+The first middleware registered is the outermost wrapper — it sees the request first and the response last. Place `errorHandler` first so it catches exceptions from all subsequent middleware and handlers.
+
+---
+
+## Middleware Composition
+
+Chain two middlewares into one with `chain()` or the `&` operator:
+
+```dart
+final combined = Middlewares.cors() & Middlewares.requestId();
+
+app.use(combined);
+// equivalent to:
+// app.use(Middlewares.cors());
+// app.use(Middlewares.requestId());
+```

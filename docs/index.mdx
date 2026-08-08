@@ -1,0 +1,61 @@
+---
+title: Ion
+description: Modular HTTP framework ecosystem for Dart
+---
+
+<p align="center" class="flex justify-center not-prose">
+  <a href="https://pub.dev/packages/ion_web"><img src="https://img.shields.io/pub/v/ion_web?label=pub.dev&logo=dart" alt="pub" /></a>
+  &nbsp;
+  <a href="https://github.com/iv-re/ion"><img src="https://img.shields.io/github/stars/iv-re/ion?logo=github" alt="github" /></a>
+</p>
+
+**Ion** is a set of decoupled, composable packages for building HTTP servers, REST APIs, and realtime services in Dart.
+
+- **Type safety** — strongly-typed headers, request context, and response builders throughout
+- **Performance** — HTTP/1.1 server built on raw TCP sockets with keep-alive and configurable timeouts
+- **Modularity** — use `ion_web` standalone or adopt any combination of packages; no required scaffolding
+
+## Basic Example
+
+```dart
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+Future<void> main() async {
+  final app = Router();
+
+  app.get('/', (req) => .text('Welcome to ion'));
+  app.get('/hello/{name}', (req) => .text('Hello, ${req.param('name')}!'));
+
+  final server = await IonServer.serve(
+    app,
+    address: .loopbackIPv4,
+    port: 8080,
+  );
+
+  print('Server listening on http://${server.address.host}:${server.port}');
+}
+```
+
+## The Ecosystem
+
+<CardGroup cols={2}>
+  <Card title="ion_web" icon="server" href="/ion-web/overview">
+    HTTP/1.1 socket server, request parsing, response builders, WebSockets, SSE, and multipart uploads.
+  </Card>
+  <Card title="ion_router" icon="route" href="/ion-router/overview">
+    Router with path parameters, middleware pipelines, route groups, and tree introspection.
+  </Card>
+  <Card title="ion_openapi" icon="book" href="/ion-openapi/overview">
+    OpenAPI 3.x spec generator — no code generation required.
+  </Card>
+  <Card title="ion_extra" icon="bolt" href="/ion-extra/overview">
+    Typed JSON parsing, query parameter decoding, field validation, and schema generation.
+  </Card>
+  <Card title="ion_test" icon="vial" href="/ion-test/overview">
+    In-process test client and declarative test runner for handlers.
+  </Card>
+  <Card title="ion_hotreload" icon="fire" href="/ion-hotreload/overview">
+    Hot reload for development — rebuilds the handler without dropping active connections.
+  </Card>
+</CardGroup>

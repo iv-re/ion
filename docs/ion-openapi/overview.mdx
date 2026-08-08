@@ -1,0 +1,106 @@
+---
+title: ion_openapi
+description: OpenAPI 3.x spec generator for ion_router
+---
+
+`ion_openapi` generates OpenAPI specifications directly from your `ion_router` routes and their `ApiOperation` metadata — at runtime, in memory, with no code generation or external YAML files.
+
+## Installation
+
+```yaml
+dependencies:
+  ion_openapi: ^0.1.0
+```
+
+## Quick Example
+
+Attach `ApiOperation` to any route via `meta: [...]` to describe it in the generated OpenAPI spec:
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+import 'package:ion_openapi/ion_openapi.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+final app = Router();
+
+app.post(
+  '/todos',
+  createTodoHandler,
+  meta: [
+    ApiOperation(
+      summary: 'Create todo',
+      description: 'Creates a new todo item for the authenticated user.',
+      tags: ['Todos'],
+      parameters: [
+        .header('X-Request-ID', description: 'Unique request identifier'),
+      ],
+      body: .json(CreateTodoDto.schema),
+      responses: {
+        .created: .json(TodoDto.schema, description: 'Created todo'),
+        .badRequest: .json(ValidationErrorDto.schema, description: 'Validation errors'),
+        .unauthorized: .empty(description: 'Missing or invalid token'),
+      },
+    ),
+  ],
+);
+
+// Serve the spec
+app.get('/openapi.json', (_) {
+  final spec = OpenApi.fromRouter(
+    app,
+    info: const OpenApiInfo(title: 'My API', version: '1.0.0'),
+    servers: [
+      const ApiServer(url: 'http://localhost:8080'),
+    ],
+  );
+  return Json(spec);
+});
+```
+
+## `ApiOperation` Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `summary` | `String?` | Short title shown in the UI |
+| `description` | `String?` | Longer description; supports Markdown |
+| `tags` | `List<String>?` | Groups operations in the UI |
+| `parameters` | `List<ApiParameter>?` | Query, header, path, or cookie parameters |
+| `body` | `ApiRequestBody?` | Request body specification |
+| `responses` | `Map<HttpStatusCode, ApiResponse>?` | Expected responses by status code |
+| `operationId` | `String?` | Unique ID used by client SDK generators |
+| `deprecated` | `bool` | Marks the operation as deprecated |
+
+## `ApiResponse` Factories
+
+| Factory | Content-Type | Description |
+| --- | --- | --- |
+| `.json(schema, {description, headers, links})` | `application/json` | JSON response |
+| `.text({description, headers, links})` | `text/plain` | Plain text response |
+| `.sse(schema, {description, headers, links})` | `text/event-stream` | Server-Sent Events stream |
+| `.binary({description, contentType, ...})` | `application/octet-stream` | Binary / file download |
+| `.empty({description, headers, links})` | — | No body (e.g. `204 No Content`, `401 Unauthorized`) |
+
+## `ApiRequestBody` Factories
+
+| Factory | Content-Type | Description |
+| --- | --- | --- |
+| `.json(schema, {description, required})` | `application/json` | JSON payload |
+| `.form(schema, {description, required})` | `application/x-www-form-urlencoded` | URL-encoded form |
+| `.multipart(schema, {description, required})` | `multipart/form-data` | Multipart file upload |
+| `.binary({description, contentType, required})` | `application/octet-stream` | Raw binary stream |
+
+## `ApiParameter` Factories
+
+Path parameters from the route pattern (e.g. `/users/{id}`) are extracted and added to the spec automatically. You do not need to declare them again in `ApiOperation.parameters`. Use `parameters` for query strings, headers, and cookies:
+
+| Factory | Location | Description |
+| --- | --- | --- |
+| `.path(name, {description, schema})` | `/items/{id}` | URL path segment — always required |
+| `.query(name, {description, required, schema})` | `?status=active` | Query string parameter |
+| `.header(name, {description, required, schema})` | `X-Request-ID` | HTTP request header |
+| `.cookie(name, {description, required, schema})` | Cookie | HTTP cookie |
+
+## Next Steps
+
+- Serve interactive documentation in the browser: [Interactive API Docs](/ion-openapi/api-ui)

@@ -1,0 +1,117 @@
+---
+title: Response
+description: Building HTTP responses in ion_web
+---
+
+`Response` is the return value of every handler. ion_web provides factory constructors for the most common response types.
+
+## Text & Status
+
+```dart
+// 200 OK with plain text body
+app.get('/hello', (req) => .text('Hello World'));
+
+// Custom status code
+app.post('/items', (req) => .text('Created', status: .created));
+
+// Status-only (no body)
+app.delete('/items/{id}', (req) => const .status(.noContent));
+app.get('/missing', (req) => const .status(.notFound));
+```
+
+## JSON
+
+Use `Json`, `JsonList`, and `RawJson` from `ion_extra`:
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+
+// DTO implementing ToJson
+app.get('/user/{id}', (req) => Json(userDto));
+
+// List of DTOs
+app.get('/users', (req) => JsonList(userList));
+
+// Raw Map / List
+app.post('/echo', (req) => RawJson({'status': 'ok'}, status: .created));
+```
+
+## Redirects
+
+```dart
+app.get('/old', (req) => Response.redirect(
+  Uri.parse('/new'),
+  status: .movedPermanently, // 301
+));
+
+// Default status is 302 Found
+app.get('/login', (req) => Response.redirect(Uri.parse('/auth/login')));
+```
+
+## Bytes & Streams
+
+```dart
+// Raw bytes
+app.get('/binary', (req) => Response.bytes(uint8ListBytes));
+
+// Chunked stream for large responses
+app.get('/export', (req) => Response.stream(
+  dataStream,
+  contentLength: totalBytes, // optional; omit for chunked transfer
+));
+```
+
+## Adding Headers
+
+All `Response` constructors accept an optional `headers` list:
+
+```dart
+app.get('/cached', (req) => Response.text(
+  'Cached content',
+  headers: [
+    const .cacheControl(maxAge: Duration(hours: 24)),
+    const .custom('X-Served-By', 'ion'),
+  ],
+));
+```
+
+Use `response.withHeaders(extra)` to append headers to an existing response:
+
+```dart
+final res = await next(req);
+return res.withHeaders([const .custom('X-Request-Id', id)]);
+```
+
+## Serving Files (`Response.file`)
+
+```dart
+app.get('/download/{name}', (req) async {
+  final file = File('downloads/${req.param('name')}');
+  return Response.file(file); // 404 if file doesn't exist
+});
+```
+
+`Response.file` handles `ETag`, `Last-Modified`, range requests (`206 Partial Content`), and `HEAD` automatically.
+
+## Virtual Content (`Response.content`)
+
+`Response.content` serves in-memory or custom-streamed assets with full HTTP semantics:
+
+- Processes `If-None-Match` / `If-Modified-Since` → `304 Not Modified`
+- Handles `Range` requests → `206 Partial Content`
+- Detects MIME type by file extension or magic bytes
+- Responds to `HEAD` without reading the stream
+
+```dart
+app.get('/assets/*', (req) async {
+  final path = req.param('*')!;
+  final asset = await loadAsset(path);
+
+  return Response.content(
+    name: path,
+    size: asset.size,
+    lastModified: asset.lastModified,
+    read: (start, end) => asset.openRead(start, end),
+  );
+});
+```

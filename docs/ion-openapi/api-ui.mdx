@@ -1,0 +1,84 @@
+---
+title: Interactive API Docs
+description: Serving Swagger UI and Scalar in the browser with ion_openapi
+---
+
+Once you have an `/openapi.json` endpoint, serve an interactive UI to browse and test your API in the browser.
+
+> **Note**: `ion_openapi` does not include a UI out of the box. The examples below are ready-to-use handler implementations you can copy into your project.
+
+## Swagger UI
+
+```dart
+Handler swaggerUi({required String title, required String specUrl}) {
+  final html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$title</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({ url: '$specUrl', dom_id: '#swagger-ui' });
+  </script>
+</body>
+</html>
+''';
+  return (req) => Response.text(html, headers: [const .contentType('text/html')]);
+}
+```
+
+## Scalar
+
+```dart
+Handler scalarUi({required String title, required String specUrl}) {
+  final html = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$title</title>
+</head>
+<body>
+  <div id="scalar"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <script>
+    Scalar.createApiReference('#scalar', { url: '$specUrl' });
+  </script>
+</body>
+</html>
+''';
+  return (req) => Response.text(html, headers: [const .contentType('text/html')]);
+}
+```
+
+## Registering the Endpoints
+
+Mount both the spec endpoint and the UI handler on a `/docs` prefix:
+
+```dart
+app.route('/docs', (docs) {
+  // Optional: protect behind Basic Auth
+  docs.use(Middlewares.basicAuth(credentials: {'admin': 'secret'}));
+
+  // Interactive UI at /docs
+  docs.get('/', swaggerUi(title: 'API Reference', specUrl: '/docs/openapi.json'));
+
+  // Raw OpenAPI spec at /docs/openapi.json
+  docs.get('/openapi.json', (_) {
+    final spec = OpenApi.fromRouter(
+      app,
+      info: const OpenApiInfo(title: 'API Reference', version: '1.0.0'),
+    );
+    return Json(spec);
+  });
+});
+```
+
+The spec is generated on each request, so it always reflects the current state of the router.

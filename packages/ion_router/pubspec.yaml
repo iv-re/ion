@@ -1,0 +1,20 @@
+name: ion_router
+description: HTTP router for ion_web.
+homepage: https://github.com/iv-re/ion
+repository: https://github.com/iv-re/ion/tree/main/packages/ion_router
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  sl: ^1.1.0
+  ctx: ^1.0.0
+  meta: ^1.12.0
+  ion_web: ^0.1.0
+  ion_extra: ^0.1.0
+
+dev_dependencies:
+  test: ^1.25.6
+  mocktail: ^1.0.5

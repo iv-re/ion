@@ -1,0 +1,65 @@
+---
+title: ion_web
+description: Core HTTP server and protocol engine for Dart
+---
+
+`ion_web` is the foundation of the ion ecosystem. It handles TCP socket management, HTTP/1.1 request parsing, response writing, and protocol upgrades (WebSocket, SSE, multipart).
+
+## Installation
+
+```yaml
+dependencies:
+  ion_web: ^0.1.0
+```
+
+## What's Included
+
+| Component | Description |
+| --- | --- |
+| `IonServer` | HTTP/1.1 server with configurable timeouts, connection limits, and graceful shutdown |
+| `Request` | Stream-based request object with typed headers and request-scoped context |
+| `Response` | Builders for text, bytes, streams, files, redirects, SSE, and WebSocket upgrades |
+| `WebSocket` | Native WebSocket upgrade with origin validation and sub-protocol negotiation |
+| `SSE` | Server-Sent Events response builder for streaming text and JSON events |
+| `Multipart` | Stream-based multipart parser with memory-to-disk spooling |
+
+## Minimal Example
+
+```dart
+import 'package:ion_web/ion_web.dart';
+
+Future<void> main() async {
+  final server = await IonServer.serve(
+    (req) => .text('Hello World'),
+    address: .loopbackIPv4,
+    port: 8080,
+  );
+
+  print('Server listening on http://${server.address.host}:${server.port}');
+}
+```
+
+`Handler` is a typedef for `FutureOr<Response> Function(Request req)`. Any function or callable object matching this signature can be passed to `IonServer.serve()`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Server & Lifecycle" icon="server" href="/ion-web/server">
+    Configure production options and shutdown.
+  </Card>
+  <Card title="Request Handling" icon="arrow-right-to-bracket" href="/ion-web/request">
+    Read headers, query params, and body streams.
+  </Card>
+  <Card title="Response Building" icon="arrow-right-from-bracket" href="/ion-web/response">
+    Build text, JSON, file, and streaming responses.
+  </Card>
+  <Card title="WebSocket" icon="plug" href="/ion-web/websocket">
+    Bidirectional realtime communication.
+  </Card>
+  <Card title="Server-Sent Events" icon="satellite-dish" href="/ion-web/sse">
+    Stream events to browsers over HTTP.
+  </Card>
+  <Card title="Multipart & File Uploads" icon="file-arrow-up" href="/ion-web/multipart">
+    Handle file uploads safely.
+  </Card>
+</CardGroup>

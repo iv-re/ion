@@ -1,0 +1,72 @@
+---
+title: Query Parameters
+description: Type-safe URL query parameter parsing in ion_extra
+---
+
+`req.query()` decodes URL query parameters into typed DTOs using the same `JsonObject` API as `req.json()`, including validation rules.
+
+## Basic Usage
+
+Define a filter DTO with `JsonObject`:
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+
+class UserFilters {
+  UserFilters.fromJson(JsonObject json)
+      : page   = json.integer('page', rules: [.range(min: 1)]),
+        limit  = json.integerOrNull('limit') ?? 20,
+        search = json.stringOrNull('search'),
+        tags   = json.listOrNull<String>('tags') ?? const [];
+
+  final int page;
+  final int limit;
+  final String? search;
+  final List<String> tags;
+}
+```
+
+Parse in a handler:
+
+```dart
+// GET /users?page=2&search=alice&tags=dart&tags=flutter
+app.get('/users', (req) {
+  final filters = req.query(UserFilters.fromJson);
+  return JsonList(findUsers(filters));
+});
+```
+
+If validation fails, `req.query()` throws `ValidationErrors` just like `req.json()`.
+
+## Type Coercion
+
+Query string values are strings; `JsonObject` converts them automatically:
+
+| Target type | Input | Result |
+| --- | --- | --- |
+| `int` | `"42"` | `42` |
+| `double` | `"3.14"` | `3.14` |
+| `bool` | `"true"`, `"1"` | `true` |
+| `bool` | `"false"`, `"0"` | `false` |
+| `String` | `"alice"` | `"alice"` |
+
+## Array Notations
+
+All three formats are supported:
+
+```
+?tags=dart&tags=flutter           # repeated keys
+?tags[]=dart&tags[]=flutter       # bracket notation
+?tags[0]=dart&tags[1]=flutter     # indexed notation
+```
+
+## Nested Objects
+
+Use dot or bracket notation for nested filter objects:
+
+```
+?filter.page=1&filter.search=alice
+?filter[page]=1&filter[search]=alice
+```
+
+Parse with `json.object('filter', NestedDto.fromJson)`.

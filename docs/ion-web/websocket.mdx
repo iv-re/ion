@@ -1,0 +1,65 @@
+---
+title: WebSocket
+description: WebSocket support in ion_web
+---
+
+`ion_web` handles WebSocket upgrades natively via `Response.websocket`. The handshake, protocol negotiation, and upgrade are done automatically.
+
+## Basic Usage
+
+```dart
+app.get('/ws', (req) {
+  return Response.websocket((WebSocketChannel channel) async {
+    await for (final message in channel.stream) {
+      channel.sink.add('Echo: $message');
+    }
+  });
+});
+```
+
+`channel.stream` emits `String` or `List<int>` messages. `channel.sink.add()` sends a message to the client. The handler completes when the stream closes.
+
+## Options
+
+```dart
+app.get('/chat', (req) {
+  return Response.websocket(
+    (channel) => handleChatSession(channel),
+
+    // Restrict allowed origins (default: same-origin only)
+    checkOrigin: (origin) => origin == 'https://myapp.com',
+
+    // Sub-protocol negotiation
+    protocolSelector: (protocols) =>
+        protocols.contains('v2.chat') ? 'v2.chat' : null,
+
+    // Reject frames exceeding this size
+    maxMessageSize: 10 * 1024 * 1024, // 10 MB
+
+    // Per-message deflate compression
+    compression: const WebSocketDeflateOptions(
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+    ),
+  );
+});
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `checkOrigin` | `bool Function(String? origin)?` | Same-origin check | Return `false` to reject the connection with `403` |
+| `protocolSelector` | `String? Function(List<String>)?` | `null` | Return a protocol from the client's list or `null` |
+| `maxMessageSize` | `int?` | `null` | Maximum frame payload size in bytes |
+| `compression` | `WebSocketDeflateOptions` | `.none` | Per-message deflate options |
+
+## Origin Validation
+
+By default, `ion_web` applies a same-origin check: the `Origin` header must match the `Host` header. Set `checkOrigin` to override this:
+
+```dart
+// Allow any origin (disables same-origin check)
+checkOrigin: (_) => true,
+
+// Allowlist
+checkOrigin: (origin) => ['https://app.example.com', 'https://admin.example.com'].contains(origin),
+```

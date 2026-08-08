@@ -1,0 +1,76 @@
+---
+title: Route Groups & Merging
+description: Sub-routing, path prefixes, inline groups, and router merging in ion_router
+---
+
+## Inline Groups (`group`)
+
+Group routes to share scoped middleware without adding a path prefix:
+
+```dart
+app.group((r) {
+  r.use(authGuard);
+
+  r.get('/profile', (req) => .text('Profile'));
+  r.get('/settings', (req) => .text('Settings'));
+});
+```
+
+`authGuard` applies only to `/profile` and `/settings`, not to routes registered on `app` directly.
+
+## Path Prefixes (`route`)
+
+Mount routes under a shared path prefix:
+
+```dart
+app.route('/api/v1', (api) {
+  api.get('/users', (req) => .text('Users'));
+  api.get('/posts', (req) => .text('Posts'));
+});
+// Registers: GET /api/v1/users, GET /api/v1/posts
+```
+
+Combine with scoped middleware:
+
+```dart
+app.route('/api/v1', (v1) {
+  v1.use(Middlewares.logger(logger: logger));
+
+  v1.group((auth) {
+    auth.use(authGuard);
+    auth.get('/me', (req) => .text('Current user'));
+  });
+
+  v1.get('/status', (req) => .text('ok'));
+});
+```
+
+## Mounting Sub-handlers (`mount`)
+
+Mount an external `Handler` under a prefix. The prefix is stripped before the request reaches the sub-handler:
+
+```dart
+// req.uri.path inside the handler will have '/static' stripped
+app.mount('/static', (req) {
+  return Response.file(File('public/${req.uri.path}'));
+});
+```
+
+## Merging Routers (`merge`)
+
+Define routes in separate files and merge them into the main router:
+
+```dart
+// lib/routers/users_router.dart
+final usersRouter = Router()
+  ..get('/users', listUsersHandler)
+  ..get('/users/{id}', getUserHandler)
+  ..post('/users', createUserHandler);
+
+// bin/server.dart
+final app = Router()
+  ..use(Middlewares.cors())
+  ..merge(usersRouter);
+```
+
+`merge()` copies all routes from `usersRouter` into `app`'s routing tree, including their metadata and introspection visibility. The merged router's middleware stack is preserved and applied to its routes.

@@ -1,0 +1,48 @@
+---
+title: Schema Generation
+description: Generating OpenAPI schemas from DTO constructors in ion_extra
+---
+
+`ion_extra` can infer an OpenAPI-compatible `Schema` from a `JsonObject` DTO constructor — no annotations needed.
+
+## Defining a Schema
+
+Call `JsonObject.schema()` with the `fromJson` constructor reference:
+
+```dart
+class CreateUserDto {
+  CreateUserDto.fromJson(JsonObject json)
+      : name  = json.string('name', rules: [.length(min: 2, max: 50)]),
+        email = json.string('email', rules: [.email()]);
+
+  final String name;
+  final String email;
+
+  static final Schema schema = JsonObject.schema(
+    CreateUserDto.fromJson,
+    title: 'CreateUserDto',
+  );
+}
+```
+
+The schema reflects the field names, types, and any validation constraints (e.g. min/max length from `.length()`).
+
+## Using with `ion_openapi`
+
+Pass `schema` directly to `ApiOperation` request body and response definitions:
+
+```dart
+app.post(
+  '/users',
+  createUserHandler,
+  meta: [
+    ApiOperation(
+      body: .json(CreateUserDto.schema),
+      responses: {
+        .created: .json(UserDto.schema, description: 'Created user'),
+        .badRequest: .json(ValidationErrorDto.schema),
+      },
+    ),
+  ],
+);
+```

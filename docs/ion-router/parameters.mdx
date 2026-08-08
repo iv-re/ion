@@ -1,0 +1,79 @@
+---
+title: Parameters & Wildcards
+description: Path parameters, typed parsing, and wildcard matching in ion_router
+---
+
+## Named Path Parameters
+
+Wrap dynamic segments in `{name}` and read them with `req.param('name')`:
+
+```dart
+app.get('/users/{id}', (req) {
+  final id = req.param('id');
+  return .text('User: $id');
+});
+
+app.get('/posts/{category}/{slug}', (req) {
+  final category = req.param('category');
+  final slug     = req.param('slug');
+  return .text('$category / $slug');
+});
+```
+
+`req.param()` returns `String?` — `null` if the segment was not captured.
+
+## Typed Parsing (`req.parseParam`)
+
+Use `req.parseParam(key, parser)` to convert a path parameter to a typed value. Returns `null` if the segment is absent or the parser returns `null`:
+
+```dart
+app.get('/users/{id}', (req) {
+  final id = req.parseParam('id', int.tryParse);
+  if (id == null) return const .status(.badRequest);
+
+  return .text('User ID: $id');
+});
+
+// Works with any parser returning T?
+app.get('/events/{date}', (req) {
+  final date = req.parseParam('date', DateTime.tryParse);
+  if (date == null) return const .status(.badRequest);
+
+  return .text('Date: $date');
+});
+```
+
+## All Parameters (`req.params`)
+
+Access every captured parameter as a `Map<String, String>`:
+
+```dart
+app.get('/orgs/{orgId}/teams/{teamId}', (req) {
+  final params = req.params; // {'orgId': '123', 'teamId': '456'}
+  return .text('Params: $params');
+});
+```
+
+## Wildcard Catch-All (`*`)
+
+Append `*` to match all remaining path segments. The captured value is available as `req.param('*')`:
+
+```dart
+app.get('/files/*', (req) {
+  final path = req.param('*'); // 'images/avatar.png'
+  return .text('File: $path');
+});
+```
+
+## Matched Route Pattern (`req.routePattern`)
+
+Retrieve the template that matched the current request:
+
+```dart
+app.get('/users/{id}', (req) {
+  final pattern = req.routePattern; // '/users/{id}'
+  return .text('Pattern: $pattern');
+});
+```
+
+This is useful for logging and telemetry — group log lines by pattern instead of raw path.

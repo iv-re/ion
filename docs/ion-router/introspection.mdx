@@ -1,0 +1,77 @@
+---
+title: Introspection & Metadata
+description: Attaching metadata to routes and walking the route tree in ion_router
+---
+
+`ion_router` lets you attach arbitrary metadata to routes and traverse the entire routing tree. This is how `ion_openapi` generates specs and how you can build custom tooling (audit logs, route listings, capability checks).
+
+## Attaching Metadata
+
+Pass a `meta` list when registering a route. Any object can be used:
+
+```dart
+class RequiresAuth {
+  const RequiresAuth({this.roles = const []});
+  final List<String> roles;
+}
+
+app.get(
+  '/admin/users',
+  listUsersHandler,
+  meta: [
+    const ApiOperation(summary: 'List users', tags: ['Admin']),
+    const RequiresAuth(roles: ['admin']),
+  ],
+);
+```
+
+## Reading Metadata (`app.routes()`)
+
+`app.routes()` returns a flat list of `Route` descriptors. Use `route.metaOf<T>()` to extract by type:
+
+```dart
+for (final route in app.routes()) {
+  final method  = route.method?.value ?? 'ALL';
+  final pattern = route.pattern;
+
+  final op = route.metaOf<ApiOperation>();
+  if (op != null) print('$method $pattern — ${op.summary}');
+
+  final auth = route.metaOf<RequiresAuth>();
+  if (auth != null) print('  Roles: ${auth.roles}');
+
+  // All instances of a type
+  final allAuth = route.metaAll<RequiresAuth>();
+}
+```
+
+## Walking the Route Tree (`app.walk()`)
+
+`walk()` recursively traverses sub-routers, concatenating path prefixes and collecting middleware stacks:
+
+```dart
+app.walk((method, fullPattern, middlewares, meta) {
+  print('${method.value} $fullPattern');
+  print('  Middlewares: ${middlewares.length}');
+
+  for (final item in meta) {
+    print('  Meta: $item');
+  }
+});
+```
+
+This is particularly useful for debugging — you can print every registered route and its full middleware chain.
+
+## Route Matching (`app.match` & `app.find`)
+
+Test routes without executing handlers:
+
+```dart
+// Does a handler exist for this method + path?
+final exists = app.match(.get, '/users/123'); // true
+
+// Which pattern matched?
+final pattern = app.find(.get, '/users/123'); // '/users/{id}'
+```
+
+Both methods return without invoking any handler code.

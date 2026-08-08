@@ -1,0 +1,82 @@
+---
+title: ion_router
+description: HTTP router for ion_web
+---
+
+`ion_router` provides route registration, URL parameter extraction, middleware pipelines, route groups, and tree introspection on top of `ion_web`.
+
+## Installation
+
+```yaml
+dependencies:
+  ion_router: ^0.1.0
+```
+
+## Route Registration
+
+```dart
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+final app = Router();
+
+app.get('/items', (req) => .text('List items'));
+app.post('/items', (req) => .text('Create item'));
+app.put('/items/{id}', (req) => .text('Update item'));
+app.delete('/items/{id}', (req) => const .status(.noContent));
+app.patch('/items/{id}', (req) => .text('Patch item'));
+app.head('/items', (req) => const .status(.ok));
+app.options('/items', (req) => const .status(.ok));
+
+// Match all HTTP methods
+app.all('/any', (req) => .text('Any method'));
+```
+
+## HTTP Methods
+
+| Method | Dart | Description |
+| --- | --- | --- |
+| GET | `app.get(pattern, handler)` | |
+| POST | `app.post(pattern, handler)` | |
+| PUT | `app.put(pattern, handler)` | |
+| PATCH | `app.patch(pattern, handler)` | |
+| DELETE | `app.delete(pattern, handler)` | |
+| HEAD | `app.head(pattern, handler)` | |
+| OPTIONS | `app.options(pattern, handler)` | |
+| CONNECT | `app.connect(pattern, handler)` | |
+| TRACE | `app.trace(pattern, handler)` | |
+| QUERY | `app.query(pattern, handler)` | |
+| Any | `app.all(pattern, handler)` | Matches all methods |
+| Custom | `app.on(method, pattern, handler)` | Explicit method |
+
+## Starting the Server
+
+`Router` implements `Handler` — pass it directly to `IonServer.serve()`:
+
+```dart
+final server = await IonServer.serve(
+  app,
+  address: .loopbackIPv4,
+  port: 8080,
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Parameters & Wildcards" icon="code" href="/ion-router/parameters">
+    Extract typed values from URL segments.
+  </Card>
+  <Card title="Middleware" icon="layer-group" href="/ion-router/middleware">
+    Add logging, auth, CORS, and error handling.
+  </Card>
+  <Card title="Route Groups & Merging" icon="folder-tree" href="/ion-router/groups-and-merging">
+    Organize routes with prefixes and sub-routers.
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/ion-router/error-handling">
+    Custom 404 and 405 responses.
+  </Card>
+  <Card title="Introspection" icon="magnifying-glass" href="/ion-router/introspection">
+    Walk the route tree and read metadata.
+  </Card>
+</CardGroup>

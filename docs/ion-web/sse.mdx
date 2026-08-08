@@ -1,0 +1,59 @@
+---
+title: Server-Sent Events (SSE)
+description: Streaming server events to browsers in ion_web
+---
+
+Server-Sent Events (SSE) allow a server to push text or JSON updates to clients over a standard HTTP connection. Unlike WebSockets, SSE is unidirectional (server → client) and reconnects automatically.
+
+## Basic Usage
+
+`Response.sse()` accepts an `async*` generator that yields `SseEvent` instances:
+
+```dart
+app.get('/events', (req) {
+  return Response.sse(() async* {
+    yield .text('Connected', event: 'system');
+
+    for (var i = 1; i <= 10; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+
+      yield .json(
+        {'count': i, 'ts': DateTime.now().toIso8601String()},
+        event: 'tick',
+        id: '$i',
+      );
+    }
+  });
+});
+```
+
+The generator runs when the first client connects. When the generator completes or throws, the stream closes and the client reconnects automatically (subject to `retry`).
+
+## `SseEvent` Constructors
+
+| Constructor | Content-Type | Description |
+| --- | --- | --- |
+| `.text(data, {event, id, retry})` | `text/event-stream` | Plain text payload |
+| `.json(data, {event, id, retry})` | `text/event-stream` | JSON-encoded payload |
+| `.comment(comment)` | `text/event-stream` | SSE comment (e.g. keepalive ping) |
+
+## Parameters
+
+| Parameter | Description |
+| --- | --- |
+| `event` | Named event type; client listens with `addEventListener('name', ...)` |
+| `id` | Message ID; browser resumes from this ID after reconnect (`Last-Event-ID`) |
+| `retry` | Reconnection delay directive sent to the client |
+
+## Keepalive
+
+Send periodic comments to keep idle connections open through proxies:
+
+```dart
+return Response.sse(() async* {
+  while (true) {
+    await Future.delayed(const Duration(seconds: 15));
+    yield .comment('keepalive');
+  }
+});
+```

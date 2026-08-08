@@ -1,0 +1,18 @@
+name: ion_hotreload
+description: Hot reload support for ion_web applications.
+homepage: https://github.com/iv-re/ion
+repository: https://github.com/iv-re/ion/tree/main/packages/ion_hotreload
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  ion_web: ^0.1.0
+  sl: ^1.1.0
+  vm_service: ^15.2.0
+  watcher: ^1.2.1
+
+dev_dependencies:
+  test: ^1.25.6

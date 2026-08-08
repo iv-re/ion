@@ -1,0 +1,54 @@
+---
+title: ion_extra
+description: JSON parsing, query decoding, validation, and schema generation for ion_web
+---
+
+`ion_extra` extends `ion_web` with typed request parsing and response serialization.
+
+## Installation
+
+```yaml
+dependencies:
+  ion_extra: ^0.1.0
+```
+
+## Minimal Example
+
+```dart
+import 'package:ion_extra/ion_extra.dart';
+import 'package:ion_router/ion_router.dart';
+import 'package:ion_web/ion_web.dart';
+
+class CreateUserDto {
+  CreateUserDto.fromJson(JsonObject json)
+      : name  = json.string('name', rules: [.length(min: 2)]),
+        email = json.string('email', rules: [.email()]);
+
+  final String name;
+  final String email;
+}
+
+final app = Router();
+
+app.post('/users', (req) async {
+  final dto = await req.json(CreateUserDto.fromJson);
+  return RawJson({'name': dto.name, 'email': dto.email}, status: .created);
+});
+```
+
+## What's Included
+
+<CardGroup cols={2}>
+  <Card title="JSON Requests & Responses" icon="code" href="/ion-extra/json">
+    Parse JSON bodies with `req.json()` and return serialized DTOs with `Json`, `JsonList`, `RawJson`.
+  </Card>
+  <Card title="Query Parameters" icon="magnifying-glass" href="/ion-extra/query">
+    Type-safe `req.query()` with coercion, array notations, and nested objects.
+  </Card>
+  <Card title="Validation Rules" icon="shield" href="/ion-extra/validation">
+    Field constraints (length, range, email, URL, regex, credit card) with `ValidationErrors`.
+  </Card>
+  <Card title="Schema Generation" icon="file-code" href="/ion-extra/schemas">
+    Generate OpenAPI schemas from `JsonObject` DTO constructors.
+  </Card>
+</CardGroup>

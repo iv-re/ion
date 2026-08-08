@@ -1,0 +1,106 @@
+---
+title: IonServer
+description: Starting, configuring, and shutting down ion_web HTTP servers
+---
+
+`IonServer` manages TCP socket binding, connection tracking, timeouts, and graceful shutdown.
+
+## Starting a Server
+
+Call `IonServer.serve()` to bind and start listening:
+
+```dart
+final server = await IonServer.serve(
+  handler,
+  address: .loopbackIPv4,
+  port: 8080,
+);
+```
+
+## Configuration
+
+Configure connection limits, header size limits, and timeouts for production:
+
+```dart
+final server = await IonServer.serve(
+  handler,
+  address: .anyIPv4,
+  port: 8080,
+  maxConnections: 10000,
+  readHeaderTimeout: const Duration(seconds: 10),
+  readBodyTimeout: const Duration(seconds: 30),
+  writeTimeout: const Duration(seconds: 10),
+  idleTimeout: const Duration(seconds: 60),
+);
+```
+
+### Full Options Reference
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `handler` | `Handler` | — | Handler function processing incoming requests |
+| `address` | `InternetAddress` | — | IP address to bind (`.loopbackIPv4`, `.anyIPv4`, etc.) |
+| `port` | `int` | — | Port to listen on |
+| `securityContext` | `SecurityContext?` | `null` | TLS/SSL context for HTTPS |
+| `maxConnections` | `int?` | `null` | Maximum concurrent connections; excess connections are dropped |
+| `logger` | `Logger?` | `null` | Structured logger for connection-level errors |
+| `readHeaderTimeout` | `Duration?` | `null` | Max time to receive and parse HTTP headers |
+| `readBodyTimeout` | `Duration?` | `null` | Max time to read the request body stream |
+| `writeTimeout` | `Duration?` | `null` | Max time to write the response to the socket |
+| `idleTimeout` | `Duration?` | `null` | Idle keep-alive connection timeout |
+| `maxHeaderSize` | `int` | `65536` | Max total size of request headers in bytes |
+| `maxHeaderCount` | `int` | `500` | Max number of request headers |
+| `backlog` | `int` | `0` | TCP listen backlog queue size |
+| `shared` | `bool` | `false` | Allow multiple isolates to bind to the same port |
+
+## HTTPS / TLS
+
+Pass a `SecurityContext` to enable HTTPS:
+
+```dart
+final context = SecurityContext()
+  ..useCertificateChain('path/to/cert.pem')
+  ..usePrivateKey('path/to/key.pem');
+
+final server = await IonServer.serve(
+  handler,
+  address: .anyIPv4,
+  port: 443,
+  securityContext: context,
+);
+```
+
+## Properties
+
+After `serve()` resolves, `IonServer` exposes:
+
+```dart
+server.address; // InternetAddress — bound address
+server.port;    // int — bound port
+```
+
+## Graceful Shutdown
+
+Call `shutdown()` to stop accepting new connections and wait for active requests to finish:
+
+```dart
+await server.shutdown(timeout: const Duration(seconds: 10));
+```
+
+If `timeout` is provided and active requests do not finish in time, their sockets are forcibly closed. If no timeout is provided, shutdown waits indefinitely.
+
+A typical signal handler:
+
+```dart
+ProcessSignal.sigterm.watch().listen((_) async {
+  await server.shutdown(timeout: const Duration(seconds: 15));
+});
+```
+
+## Forced Shutdown
+
+Call `close()` to immediately stop the server and forcibly destroy all active connections without waiting for them to finish:
+
+```dart
+await server.close();
+```

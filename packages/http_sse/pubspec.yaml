@@ -1,0 +1,16 @@
+name: http_sse
+description: Server-Sent Events (SSE) events, encoders, and decoders.
+homepage: https://github.com/iv-re/ion
+repository: https://github.com/iv-re/ion/tree/main/packages/http_sse
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  equatable: ^2.1.0
+  meta: ^1.12.0
+
+dev_dependencies:
+  test: ^1.25.6
