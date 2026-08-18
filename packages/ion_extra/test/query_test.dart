@@ -1,6 +1,7 @@
+import 'package:checks/checks.dart';
 import 'package:ion_extra/ion_extra.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 void main() {
   group('RequestQueryExtractor', () {
@@ -12,12 +13,12 @@ void main() {
 
       final filters = req.query(_FiltersDto.fromJson);
 
-      expect(filters.page, equals(2));
-      expect(filters.limit, equals(20));
-      expect(filters.search, equals('flutter'));
-      expect(filters.isActive, isTrue);
-      expect(filters.price, equals(19.99));
-      expect(filters.tags, equals(['dart', 'web']));
+      check(filters.page).equals(2);
+      check(filters.limit).equals(20);
+      check(filters.search).equals('flutter');
+      check(filters.isActive).equals(true);
+      check(filters.price).equals(19.99);
+      check(filters.tags).deepEquals(['dart', 'web']);
     });
 
     test(
@@ -28,14 +29,9 @@ void main() {
         );
         final req = _createTestRequestWithUri(uri);
 
-        try {
-          req.query(_FiltersDto.fromJson);
-          fail('Should throw ValidationErrors');
-        } on ValidationErrors catch (e) {
-          final json = e.toJson();
-          expect(json.containsKey('page'), isTrue);
-          expect(json.containsKey('is_active'), isTrue);
-        }
+        check(() => req.query(_FiltersDto.fromJson)).throws<ValidationErrors>()
+          ..has((e) => e.toJson(), 'toJson').containsKey('page')
+          ..has((e) => e.toJson(), 'toJson').containsKey('is_active');
       },
     );
 
@@ -50,13 +46,10 @@ void main() {
       );
       final req = _createTestRequestWithUri(uri);
 
-      try {
-        req.query(_FiltersDto.fromJson);
-        fail('Should throw ValidationErrors');
-      } on ValidationErrors catch (e) {
-        final errJson = e.toJson();
-        expect(errJson.keys, equals(['page']));
-      }
+      check(() => req.query(_FiltersDto.fromJson))
+          .throws<ValidationErrors>()
+          .has((e) => e.toJson().keys, 'keys')
+          .deepEquals(['page']);
     });
 
     test('query evaluates map lazily on requested keys', () {
@@ -66,7 +59,7 @@ void main() {
       final req = _createTestRequestWithUri(uri);
 
       final page = req.query((json) => json.integer('page'));
-      expect(page, equals(1));
+      check(page).equals(1);
     });
 
     test('query parses indexed arrays and sorts out-of-order indices', () {
@@ -76,7 +69,7 @@ void main() {
       final req = _createTestRequestWithUri(uri);
 
       final ids = req.query((json) => json.list<int>('user_ids'));
-      expect(ids, equals([10, 20, 30]));
+      check(ids).deepEquals([10, 20, 30]);
     });
 
     test('query parses bracket array notation tags[]', () {
@@ -86,13 +79,13 @@ void main() {
       final req1 = _createTestRequestWithUri(uri1);
 
       final filters1 = req1.query(_FiltersDto.fromJson);
-      expect(filters1.tags, equals(['dart', 'flutter']));
+      check(filters1.tags).deepEquals(['dart', 'flutter']);
 
       final uri2 = Uri.parse('http://localhost/products?category[]=phones');
       final req2 = _createTestRequestWithUri(uri2);
 
       final category = req2.query((json) => json.list<String>('category'));
-      expect(category, equals(['phones']));
+      check(category).deepEquals(['phones']);
     });
 
     test('query parses nested objects with dot and bracket notation', () {
@@ -103,7 +96,7 @@ void main() {
       final search1 = req1.query(
         (json) => json.object('filter', _FiltersDto.fromJson).search,
       );
-      expect(search1, equals('dart'));
+      check(search1).equals('dart');
 
       final uri2 = Uri.parse(
         'http://localhost/items?filter[search]=flutter&filter[page]=2',
@@ -112,7 +105,7 @@ void main() {
       final search2 = req2.query(
         (json) => json.object('filter', _FiltersDto.fromJson).search,
       );
-      expect(search2, equals('flutter'));
+      check(search2).equals('flutter');
 
       final uri3 = Uri.parse(
         'http://localhost/items?a[b][c]=42',
@@ -126,7 +119,7 @@ void main() {
           );
         },
       );
-      expect(val3, equals(42));
+      check(val3).equals(42);
     });
 
     test(
@@ -139,22 +132,22 @@ void main() {
         final req = _createTestRequestWithUri(uri);
 
         req.query((json) {
-          expect(json.integer('page'), equals(-5));
-          expect(json.float('price'), equals(-12.50));
-          expect(json.integer('temp'), equals(25));
-          expect(json.string('q'), equals(''));
+          check(json.integer('page')).equals(-5);
+          check(json.float('price')).equals(-12.50);
+          check(json.integer('temp')).equals(25);
+          check(json.string('q')).equals('');
         });
 
         for (final v in ['true', 'TRUE', 'True', 'tRuE']) {
           final u = Uri.parse('http://localhost/items?flag=$v');
           final r = _createTestRequestWithUri(u);
-          expect(r.query((json) => json.boolean('flag')), isTrue);
+          check(r.query((json) => json.boolean('flag'))).isTrue();
         }
 
         for (final v in ['false', 'FALSE', 'False', 'fAlSe']) {
           final u = Uri.parse('http://localhost/items?flag=$v');
           final r = _createTestRequestWithUri(u);
-          expect(r.query((json) => json.boolean('flag')), isFalse);
+          check(r.query((json) => json.boolean('flag'))).isFalse();
         }
       },
     );
@@ -164,7 +157,7 @@ void main() {
       final req = _createTestRequestWithUri(uri);
 
       final ids = req.query((json) => json.list<int>('ids'));
-      expect(ids, equals([10, 20, 30]));
+      check(ids).deepEquals([10, 20, 30]);
     });
 
     test(
@@ -176,10 +169,10 @@ void main() {
         final req = _createTestRequestWithUri(uri);
 
         req.query((json) {
-          expect(json.has('page'), isTrue);
-          expect(json.has('tags'), isTrue);
-          expect(json.has('filter'), isTrue);
-          expect(json.has('nonexistent'), isFalse);
+          check(json.has('page')).isTrue();
+          check(json.has('tags')).isTrue();
+          check(json.has('filter')).isTrue();
+          check(json.has('nonexistent')).isFalse();
         });
       },
     );
@@ -189,7 +182,7 @@ void main() {
       final req = _createTestRequestWithUri(uri);
 
       final val = req.query((json) => json.string('filter[search]'));
-      expect(val, equals('flutter'));
+      check(val).equals('flutter');
     });
   });
 }
