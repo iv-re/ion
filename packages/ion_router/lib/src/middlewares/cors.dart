@@ -161,7 +161,7 @@ final class _WildcardOrigin {
   }
 }
 
-const _originHeader = HttpHeader('Origin');
+const HttpHeader _originHeader = HttpHeader.origin;
 const _prebuiltVaryPreflight = VaryHeader([
   'Origin',
   'Access-Control-Request-Method',
