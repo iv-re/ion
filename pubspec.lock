@@ -49,6 +49,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  checks:
+    dependency: transitive
+    description:
+      name: checks
+      sha256: "016871c84732c1ac9856b8940236d5a5802ba638b3bd3e0ea7027b51a35f7aa7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.1"
   cli_config:
     dependency: transitive
     description:
@@ -205,10 +213,10 @@ packages:
     dependency: transitive
     description:
       name: json_codable
-      sha256: dcafc3bfab37cc706e99f43b13d91461439ede560d6e1634b4afdd5154eb3cc0
+      sha256: "693ce08c7ca1ff12caaf0f58691d89947277318627a2aee896ffddf607c783c3"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.2.0"
   json_schema_builder:
     dependency: transitive
     description:
