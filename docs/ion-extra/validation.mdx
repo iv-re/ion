@@ -77,7 +77,7 @@ app.use(Middlewares.errorHandler(
 
 ## Response Format
 
-`ValidationErrors.toJson()` produces a flat object keyed by field name. Each field maps to a list of error objects (for scalar fields) or a nested structure (for objects and arrays):
+`ValidationErrors.toJson()` produces a flat object keyed by field path using dot notation. Each field path maps to a list of error objects:
 
 ```json
 // POST /register with {"username": "ab", "email": "not-valid", "age": 10}
@@ -94,16 +94,17 @@ app.use(Middlewares.errorHandler(
 }
 ```
 
-For nested objects, the value is a recursive `ValidationErrors` structure instead of a list:
+For nested objects and arrays, paths are flattened with dot notation (e.g. `address.city`, `items.0.title`):
 
 ```json
-// Nested object validation
+// Nested object and list validation errors
 {
-  "address": {
-    "city": [
-      {"code": "required"}
-    ]
-  }
+  "address.city": [
+    {"code": "required"}
+  ],
+  "items.0.title": [
+    {"code": "length", "params": {"min": 1, "value": ""}}
+  ]
 }
 ```
 

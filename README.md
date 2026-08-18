@@ -3,8 +3,6 @@
 > Modular HTTP framework ecosystem for Dart
 
 <p align="center">
-  <a href="https://pub.dev/packages/ion_web"><img src="https://img.shields.io/pub/v/ion_web?label=pub.dev&logo=dart" alt="pub" /></a>
-  &nbsp;
   <a href="https://docs.page/iv-re/ion"><img src="https://img.shields.io/badge/docs-docs.page-blue" alt="docs" /></a>
 </p>
 
@@ -40,11 +38,11 @@ Future<void> main() async {
 
 Choose only the components you need. Every package is designed to work independently or together.
 
-| Package | Description |
-| --- | --- |
-| [`ion_web`](./packages/ion_web) | HTTP/1.1 socket server, request parsing, response builders, WebSockets, SSE, and multipart uploads. |
-| [`ion_router`](./packages/ion_router) | Router with path parameters, middleware pipelines, route groups, and tree introspection. |
-| [`ion_openapi`](./packages/ion_openapi) | OpenAPI 3.x spec generator — no code generation required. |
-| [`ion_extra`](./packages/ion_extra) | Typed JSON parsing, query parameter decoding, field validation, and schema generation. |
-| [`ion_test`](./packages/ion_test) | In-process test client and declarative test runner for handlers. |
-| [`ion_hotreload`](./packages/ion_hotreload) | Hot reload for development — rebuilds the handler without dropping active connections. |
+| Package | Description | Version |
+| --- | --- | --- |
+| [`ion_web`](./packages/ion_web) | HTTP/1.1 socket server, request parsing, response builders, WebSockets, SSE, and multipart uploads. | [![Pub Version](https://img.shields.io/pub/v/ion_web)](https://pub.dev/packages/ion_web) |
+| [`ion_router`](./packages/ion_router) | Router with path parameters, middleware pipelines, route groups, and tree introspection. | [![Pub Version](https://img.shields.io/pub/v/ion_router)](https://pub.dev/packages/ion_router) |
+| [`ion_openapi`](./packages/ion_openapi) | OpenAPI 3.x spec generator — no code generation required. | [![Pub Version](https://img.shields.io/pub/v/ion_openapi)](https://pub.dev/packages/ion_openapi) |
+| [`ion_extra`](./packages/ion_extra) | Typed JSON parsing, query parameter decoding, field validation, and schema generation. | [![Pub Version](https://img.shields.io/pub/v/ion_extra)](https://pub.dev/packages/ion_extra) |
+| [`ion_test`](./packages/ion_test) | In-process test client and declarative test runner for handlers. | [![Pub Version](https://img.shields.io/pub/v/ion_test)](https://pub.dev/packages/ion_test) |
+| [`ion_hotreload`](./packages/ion_hotreload) | Hot reload for development — rebuilds the handler without dropping active connections. | [![Pub Version](https://img.shields.io/pub/v/ion_hotreload)](https://pub.dev/packages/ion_hotreload) |
