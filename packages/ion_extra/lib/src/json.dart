@@ -18,11 +18,10 @@ class RawJson extends Response {
   /// Creates a raw JSON response with status [status] and optional [headers].
   RawJson(
     Object? data, {
-    HttpStatusCode status = .ok,
+    super.status = .ok,
     List<TypedHeader> headers = const [],
   }) : super.bytes(
          _jsonEncoder.convert(data) as Uint8List,
-         status: status,
          headers: headers.isEmpty
              ? _defaultHeaders
              : [..._defaultHeaders, ...headers],
