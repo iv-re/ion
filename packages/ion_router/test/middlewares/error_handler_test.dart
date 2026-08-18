@@ -1,8 +1,9 @@
+import 'package:checks/checks.dart';
 import 'package:ctx/ctx.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:sl/sl.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 import 'utils.dart';
 
@@ -36,7 +37,7 @@ void main() {
         ..get('/test', (req) => .text('ok'));
 
       final res = await makeRequest(app, path: '/test');
-      expect(res.status.value, equals(200));
+      check(res.status.value).equals(200);
 
       verifyNever(() => handler.handle(any(), any()));
     });
@@ -47,12 +48,12 @@ void main() {
         ..get('/error', (req) => throw Exception('something went wrong'));
 
       final res = await makeRequest(app, path: '/error');
-      expect(res.status.value, equals(500));
+      check(res.status.value).equals(500);
 
       final rec = handler.capturedRecord;
-      expect(rec.level, equals(LogLevel.error));
-      expect(rec.message, equals('unhandled exception in request'));
-      expect(rec.attrs.any((a) => a.key == 'error'), isTrue);
+      check(rec.level).equals(LogLevel.error);
+      check(rec.message).equals('unhandled exception in request');
+      check(rec.attrs.any((a) => a.key == 'error')).isTrue();
     });
 
     test('delegates to custom onError handler', () async {
@@ -74,7 +75,7 @@ void main() {
         );
 
       final res = await makeRequest(app, path: '/custom-error');
-      expect(res.status.value, equals(400));
+      check(res.status.value).equals(400);
 
       verifyNever(() => handler.handle(any(), any()));
     });

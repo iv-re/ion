@@ -1,9 +1,10 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:ctx/ctx.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 Request _makeRequest(String path) {
   return Request(
@@ -26,7 +27,7 @@ void main() {
         });
 
       final res = await app(_makeRequest('/fast'));
-      expect(res.status, equals(HttpStatusCode.ok));
+      check(res.status).equals(HttpStatusCode.ok);
     });
 
     test('returns 504 Gateway Timeout when request exceeds duration', () async {
@@ -38,7 +39,7 @@ void main() {
         });
 
       final res = await app(_makeRequest('/slow'));
-      expect(res.status, equals(HttpStatusCode.gatewayTimeout));
+      check(res.status).equals(HttpStatusCode.gatewayTimeout);
     });
 
     test('uses custom onTimeout callback when provided', () async {
@@ -58,7 +59,7 @@ void main() {
         });
 
       final res = await app(_makeRequest('/slow'));
-      expect(res.status, equals(HttpStatusCode.requestTimeout));
+      check(res.status).equals(HttpStatusCode.requestTimeout);
     });
 
     test('populates context deadline for inner handlers', () async {
@@ -73,12 +74,11 @@ void main() {
 
       final start = DateTime.now();
       final res = await app(_makeRequest('/check'));
-      expect(res.status, equals(HttpStatusCode.ok));
-      expect(innerDeadline, isNotNull);
-      expect(
+      check(res.status).equals(HttpStatusCode.ok);
+      check(innerDeadline).isNotNull();
+      check(
         innerDeadline!.difference(start).inSeconds,
-        greaterThanOrEqualTo(4),
-      );
+      ).isGreaterOrEqual(4);
     });
 
     test(
@@ -95,8 +95,8 @@ void main() {
           });
 
         final res = await app(_makeRequest('/listen-done'));
-        expect(res.status, equals(HttpStatusCode.gatewayTimeout));
-        expect(innerCtxDone, isTrue);
+        check(res.status).equals(HttpStatusCode.gatewayTimeout);
+        check(innerCtxDone).isTrue();
       },
     );
 
@@ -110,7 +110,7 @@ void main() {
           });
 
         final res = await app(_makeRequest('/timeout-exception'));
-        expect(res.status, equals(HttpStatusCode.gatewayTimeout));
+        check(res.status).equals(HttpStatusCode.gatewayTimeout);
       },
     );
   });

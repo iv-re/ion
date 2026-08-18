@@ -1,9 +1,10 @@
+import 'package:checks/checks.dart';
 import 'package:ctx/ctx.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:sl/sl.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 import 'utils.dart';
 
@@ -37,19 +38,19 @@ void main() {
         ..get('/test', (req) => .text('ok'));
 
       final res = await makeRequest(app, path: '/test');
-      expect(res, isA<Response>());
+      check(res).isA<Response>();
 
       final rec = handler.capturedRecord;
 
-      expect(rec.level, equals(LogLevel.info));
-      expect(rec.message, equals('request processed'));
+      check(rec.level).equals(LogLevel.info);
+      check(rec.message).equals('request processed');
 
       final http = rec.attrs.get<LogGroupAttr>('http');
-      expect(http.get<LogStringAttr>('method').value, equals('GET'));
-      expect(http.get<LogStringAttr>('path').value, equals('/test'));
-      expect(http.get<LogIntAttr>('status').value, equals(200));
-      expect(http.get<LogIntAttr>('duration_ms').value, isA<int>());
-      expect(http.get<LogIntAttr>('bytes').value, equals(2));
+      check(http.get<LogStringAttr>('method').value).equals('GET');
+      check(http.get<LogStringAttr>('path').value).equals('/test');
+      check(http.get<LogIntAttr>('status').value).equals(200);
+      check(http.get<LogIntAttr>('duration_ms').value).isA<int>();
+      check(http.get<LogIntAttr>('bytes').value).equals(2);
     });
 
     test('logs with warn level for 4xx status', () async {
@@ -59,7 +60,7 @@ void main() {
 
       await makeRequest(app, path: '/404');
 
-      expect(handler.capturedRecord.level, equals(LogLevel.warn));
+      check(handler.capturedRecord.level).equals(LogLevel.warn);
     });
 
     test('logs with error level for 5xx status', () async {
@@ -72,7 +73,7 @@ void main() {
 
       await makeRequest(app, path: '/500');
 
-      expect(handler.capturedRecord.level, equals(LogLevel.error));
+      check(handler.capturedRecord.level).equals(LogLevel.error);
     });
   });
 }

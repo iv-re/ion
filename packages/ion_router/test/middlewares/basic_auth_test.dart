@@ -1,8 +1,9 @@
 import 'dart:convert';
 
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 import 'utils.dart';
 
@@ -17,14 +18,13 @@ void main() {
           ..get('/protected', (req) => Response.text('secret area'));
 
         final res = await makeRequest(app, path: '/protected');
-        expect(res, isA<Response>());
-
-        expect(res.status, equals(HttpStatusCode.unauthorized));
+        check(res).isA<Response>();
+        check(res.status).equals(HttpStatusCode.unauthorized);
 
         final wwwAuthHeader = res.headers.firstWhere(
           (h) => h.name == 'WWW-Authenticate',
         );
-        expect(wwwAuthHeader.value, contains('Basic realm="Restricted"'));
+        check(wwwAuthHeader.value).contains('Basic realm="Restricted"');
       },
     );
 
@@ -39,13 +39,15 @@ void main() {
         headers: [.authorization(.basic('admin', 'secret123'))],
       );
 
-      expect(res, isA<Response>());
-      expect(res.status, equals(HttpStatusCode.ok));
-      if (res.body case BytesResponseBody(:final bytes)) {
-        expect(utf8.decode(bytes), equals('welcome admin'));
-      } else {
-        fail('Expected BytesResponseBody');
-      }
+      check(res).isA<Response>();
+      check(res.status).equals(HttpStatusCode.ok);
+      check(res.body)
+          .isA<BytesResponseBody>()
+          .has(
+            (b) => utf8.decode(b.bytes),
+            'decoded bytes',
+          )
+          .equals('welcome admin');
     });
 
     test('rejects invalid password from credentials map', () async {
@@ -59,8 +61,8 @@ void main() {
         headers: [.authorization(.basic('admin', 'wrong_pass'))],
       );
 
-      expect(res, isA<Response>());
-      expect(res.status, equals(HttpStatusCode.unauthorized));
+      check(res).isA<Response>();
+      check(res.status).equals(HttpStatusCode.unauthorized);
     });
 
     test('supports custom authenticator function', () async {
@@ -72,7 +74,7 @@ void main() {
         )
         ..get('/protected', (req) {
           final auth = req.headers.authorization! as AuthorizationBasic;
-          expect(auth.username, equals('john'));
+          check(auth.username).equals('john');
           return Response.text('hello john');
         });
 
@@ -82,17 +84,14 @@ void main() {
         headers: [.authorization(.basic('john', 'pass'))],
       );
 
-      expect(res, isA<Response>());
-      expect(res.status, equals(HttpStatusCode.ok));
+      check(res).isA<Response>();
+      check(res.status).equals(HttpStatusCode.ok);
     });
 
     test(
       'throws AssertionError if neither credentials nor authenticator provided',
       () {
-        expect(
-          Middlewares.basicAuth,
-          throwsA(isA<AssertionError>()),
-        );
+        check(Middlewares.basicAuth).throws<AssertionError>();
       },
     );
   });

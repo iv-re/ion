@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 Future<Response> _runCors(
   Middleware middleware, {
@@ -58,8 +59,8 @@ void main() {
   group('CORS Middleware - Non-CORS requests', () {
     test('passes through unchanged when no Origin header is present', () async {
       final res = await _runCors(Middlewares.cors());
-      expect(res.status, equals(HttpStatusCode.ok));
-      expect(res.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res.status).equals(HttpStatusCode.ok);
+      check(res.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
 
     test('passes through when Origin header is empty', () async {
@@ -67,8 +68,8 @@ void main() {
         Middlewares.cors(),
         headers: {'Origin': '   '},
       );
-      expect(res.status, equals(HttpStatusCode.ok));
-      expect(res.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res.status).equals(HttpStatusCode.ok);
+      check(res.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
   });
 
@@ -80,11 +81,10 @@ void main() {
           Middlewares.cors(),
           headers: {'Origin': 'https://app.example.com'},
         );
-        expect(res.status, equals(HttpStatusCode.ok));
-        expect(
+        check(res.status).equals(HttpStatusCode.ok);
+        check(
           res.headers.get<AccessControlAllowOriginHeader>(),
-          isA<AccessControlAllowOriginAny>(),
-        );
+        ).isA<AccessControlAllowOriginAny>();
       },
     );
 
@@ -97,23 +97,19 @@ void main() {
           'Access-Control-Request-Method': 'POST',
         },
       );
-      expect(res.status, equals(HttpStatusCode.noContent));
-      expect(
+      check(res.status).equals(HttpStatusCode.noContent);
+      check(
         res.headers.get<AccessControlAllowOriginHeader>(),
-        isA<AccessControlAllowOriginAny>(),
-      );
-      expect(
+      ).isA<AccessControlAllowOriginAny>();
+      check(
         res.headers.get<AccessControlAllowMethodsHeader>()?.methods,
-        contains('POST'),
-      );
-      expect(
-        res.headers.get<VaryHeader>()?.headers,
-        containsAll([
-          'Origin',
-          'Access-Control-Request-Method',
-          'Access-Control-Request-Headers',
-        ]),
-      );
+      ).isNotNull().contains('POST');
+      check(
+          res.headers.get<VaryHeader>()?.headers,
+        ).isNotNull()
+        ..contains('Origin')
+        ..contains('Access-Control-Request-Method')
+        ..contains('Access-Control-Request-Headers');
     });
 
     test('supports CorsOptions.allowAll() permissive constructor', () async {
@@ -127,15 +123,13 @@ void main() {
           'Access-Control-Request-Headers': 'X-Custom-Header',
         },
       );
-      expect(res.status, equals(HttpStatusCode.noContent));
-      expect(
+      check(res.status).equals(HttpStatusCode.noContent);
+      check(
         res.headers.get<AccessControlAllowOriginHeader>(),
-        isA<AccessControlAllowOriginAny>(),
-      );
-      expect(
+      ).isA<AccessControlAllowOriginAny>();
+      check(
         res.headers.get<AccessControlAllowHeadersHeader>()?.headers,
-        contains('X-Custom-Header'),
-      );
+      ).isNotNull().contains('X-Custom-Header');
     });
   });
 
@@ -148,15 +142,16 @@ void main() {
         headers: {'Origin': 'https://example.com'},
       );
       final header = res.headers.get<AccessControlAllowOriginHeader>();
-      expect(header, isA<AccessControlAllowOriginValue>());
-      expect(
-        (header! as AccessControlAllowOriginValue).origin,
-        equals('https://example.com'),
-      );
-      expect(
+      check(header)
+          .isA<AccessControlAllowOriginValue>()
+          .has(
+            (h) => h.origin,
+            'origin',
+          )
+          .equals('https://example.com');
+      check(
         res.headers.get<VaryHeader>()?.headers,
-        contains('Origin'),
-      );
+      ).isNotNull().contains('Origin');
     });
 
     test('allows wildcard domain pattern matching', () async {
@@ -169,17 +164,19 @@ void main() {
         headers: {'Origin': 'https://sub.domain.com'},
       );
       final header1 = res1.headers.get<AccessControlAllowOriginHeader>();
-      expect(header1, isA<AccessControlAllowOriginValue>());
-      expect(
-        (header1! as AccessControlAllowOriginValue).origin,
-        equals('https://sub.domain.com'),
-      );
+      check(header1)
+          .isA<AccessControlAllowOriginValue>()
+          .has(
+            (h) => h.origin,
+            'origin',
+          )
+          .equals('https://sub.domain.com');
 
       final res2 = await _runCors(
         mw,
         headers: {'Origin': 'https://other.com'},
       );
-      expect(res2.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res2.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
 
     test('supports custom allowOriginFunc', () async {
@@ -194,17 +191,19 @@ void main() {
         headers: {'Origin': 'https://test.custom.io'},
       );
       final header1 = res1.headers.get<AccessControlAllowOriginHeader>();
-      expect(header1, isA<AccessControlAllowOriginValue>());
-      expect(
-        (header1! as AccessControlAllowOriginValue).origin,
-        equals('https://test.custom.io'),
-      );
+      check(header1)
+          .isA<AccessControlAllowOriginValue>()
+          .has(
+            (h) => h.origin,
+            'origin',
+          )
+          .equals('https://test.custom.io');
 
       final res2 = await _runCors(
         mw,
         headers: {'Origin': 'https://test.bad.io'},
       );
-      expect(res2.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res2.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
   });
 
@@ -223,8 +222,8 @@ void main() {
           'Access-Control-Request-Method': 'PATCH',
         },
       );
-      expect(res.status, equals(HttpStatusCode.noContent));
-      expect(res.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res.status).equals(HttpStatusCode.noContent);
+      check(res.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
 
     test('rejects preflight when requested headers are not allowed', () async {
@@ -245,8 +244,8 @@ void main() {
           'Access-Control-Request-Headers': 'X-Header-3, X-Header-1',
         },
       );
-      expect(res.status, equals(HttpStatusCode.noContent));
-      expect(res.headers.get<AccessControlAllowOriginHeader>(), isNull);
+      check(res.status).equals(HttpStatusCode.noContent);
+      check(res.headers.get<AccessControlAllowOriginHeader>()).isNull();
     });
 
     test(
@@ -266,11 +265,10 @@ void main() {
             'Access-Control-Request-Headers': 'origin',
           },
         );
-        expect(res.status, equals(HttpStatusCode.noContent));
-        expect(
+        check(res.status).equals(HttpStatusCode.noContent);
+        check(
           res.headers.get<AccessControlAllowOriginHeader>(),
-          isNotNull,
-        );
+        ).isNotNull();
       },
     );
 
@@ -284,13 +282,15 @@ void main() {
           'Origin': 'https://foobar.com',
         },
       );
-      expect(res.status, equals(HttpStatusCode.ok));
+      check(res.status).equals(HttpStatusCode.ok);
       final header = res.headers.get<AccessControlAllowOriginHeader>();
-      expect(header, isA<AccessControlAllowOriginValue>());
-      expect(
-        (header! as AccessControlAllowOriginValue).origin,
-        equals('https://foobar.com'),
-      );
+      check(header)
+          .isA<AccessControlAllowOriginValue>()
+          .has(
+            (h) => h.origin,
+            'origin',
+          )
+          .equals('https://foobar.com');
     });
   });
 
@@ -307,10 +307,9 @@ void main() {
           ),
           headers: {'Origin': 'https://example.com'},
         );
-        expect(
+        check(
           res.headers.get<AccessControlAllowCredentialsHeader>(),
-          equals(const AccessControlAllowCredentialsHeader()),
-        );
+        ).equals(const AccessControlAllowCredentialsHeader());
       },
     );
 
@@ -328,10 +327,9 @@ void main() {
           'Access-Control-Request-Method': 'POST',
         },
       );
-      expect(
+      check(
         res.headers.get<AccessControlMaxAgeHeader>()?.duration,
-        equals(const Duration(hours: 1)),
-      );
+      ).equals(const Duration(hours: 1));
     });
 
     test(
@@ -349,10 +347,9 @@ void main() {
           ),
           headers: {'Origin': 'https://example.com'},
         );
-        expect(
+        check(
           res.headers.get<AccessControlExposeHeadersHeader>()?.headers,
-          contains('X-Custom-Header'),
-        );
+        ).isNotNull().contains('X-Custom-Header');
       },
     );
 
@@ -370,13 +367,15 @@ void main() {
           'Access-Control-Request-Method': 'GET',
         },
       );
-      expect(res.status, equals(HttpStatusCode.ok));
+      check(res.status).equals(HttpStatusCode.ok);
       final header = res.headers.get<AccessControlAllowOriginHeader>();
-      expect(header, isA<AccessControlAllowOriginValue>());
-      expect(
-        (header! as AccessControlAllowOriginValue).origin,
-        equals('https://example.com'),
-      );
+      check(header)
+          .isA<AccessControlAllowOriginValue>()
+          .has(
+            (h) => h.origin,
+            'origin',
+          )
+          .equals('https://example.com');
     });
   });
 }

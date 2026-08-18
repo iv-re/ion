@@ -1,6 +1,7 @@
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 Future<Response> req(
   Router app,
@@ -67,28 +68,29 @@ void main() {
           ),
         );
 
-      expect((await req(app, .get, '/')).bodyText, 'index');
-      expect((await req(app, .get, '/favicon.ico')).bodyText, 'favicon');
+      check((await req(app, .get, '/')).bodyText).equals('index');
+      check((await req(app, .get, '/favicon.ico')).bodyText).equals('favicon');
 
       // Overlapping static vs param (/article/near vs /article/123)
-      expect((await req(app, .get, '/article/near')).bodyText, 'article near');
-      expect((await req(app, .get, '/article/123')).bodyText, 'article:123');
+      check(
+        (await req(app, .get, '/article/near')).bodyText,
+      ).equals('article near');
+      check(
+        (await req(app, .get, '/article/123')).bodyText,
+      ).equals('article:123');
 
       // Multiple parameters
-      expect(
+      check(
         (await req(app, .get, '/article/123/456')).bodyText,
-        'opts:123/456',
-      );
-      expect(
+      ).equals('opts:123/456');
+      check(
         (await req(app, .get, '/article/slug/sept/-/4/2015')).bodyText,
-        'slug:sept/4/2015',
-      );
+      ).equals('slug:sept/4/2015');
 
       // Extension / Delimiter parameters
-      expect(
+      check(
         (await req(app, .get, '/articles/doc.pdf')).bodyText,
-        'file:doc.pdf',
-      );
+      ).equals('file:doc.pdf');
     });
 
     test('overwrites route when registering duplicate pattern', () async {
@@ -100,7 +102,7 @@ void main() {
         );
 
       final res = await req(app, .get, '/ping/123');
-      expect(res.bodyText, 'second:123');
+      check(res.bodyText).equals('second:123');
     });
   });
 
@@ -111,9 +113,9 @@ void main() {
         ..get('/hello', (req) => Response.text('get hello'))
         ..post('/hello', (req) => Response.text('post hello'));
 
-      expect((await req(app, .get, '/')).status, HttpStatusCode.ok);
-      expect((await req(app, .get, '/hello')).status, HttpStatusCode.ok);
-      expect((await req(app, .post, '/hello')).status, HttpStatusCode.ok);
+      check((await req(app, .get, '/')).status).equals(HttpStatusCode.ok);
+      check((await req(app, .get, '/hello')).status).equals(HttpStatusCode.ok);
+      check((await req(app, .post, '/hello')).status).equals(HttpStatusCode.ok);
     });
   });
 
@@ -132,17 +134,23 @@ void main() {
         ..query('/test', (req) => Response.text('query'))
         ..all('/any', (req) => Response.text('all'));
 
-      expect((await req(app, .put, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .delete, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .patch, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .head, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .options, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .connect, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .trace, '/test')).status, HttpStatusCode.ok);
-      expect((await req(app, .query, '/test')).status, HttpStatusCode.ok);
+      check((await req(app, .put, '/test')).status).equals(HttpStatusCode.ok);
+      check(
+        (await req(app, .delete, '/test')).status,
+      ).equals(HttpStatusCode.ok);
+      check((await req(app, .patch, '/test')).status).equals(HttpStatusCode.ok);
+      check((await req(app, .head, '/test')).status).equals(HttpStatusCode.ok);
+      check(
+        (await req(app, .options, '/test')).status,
+      ).equals(HttpStatusCode.ok);
+      check(
+        (await req(app, .connect, '/test')).status,
+      ).equals(HttpStatusCode.ok);
+      check((await req(app, .trace, '/test')).status).equals(HttpStatusCode.ok);
+      check((await req(app, .query, '/test')).status).equals(HttpStatusCode.ok);
 
-      expect((await req(app, .get, '/any')).status, HttpStatusCode.ok);
-      expect((await req(app, .post, '/any')).status, HttpStatusCode.ok);
+      check((await req(app, .get, '/any')).status).equals(HttpStatusCode.ok);
+      check((await req(app, .post, '/any')).status).equals(HttpStatusCode.ok);
     });
   });
 
@@ -159,11 +167,12 @@ void main() {
           return Response.text('org:$orgId,member:$memberId');
         });
 
-      expect((await req(app, .get, '/users/123')).status, HttpStatusCode.ok);
-      expect(
+      check(
+        (await req(app, .get, '/users/123')).status,
+      ).equals(HttpStatusCode.ok);
+      check(
         (await req(app, .get, '/orgs/pusk/members/salvatore')).status,
-        HttpStatusCode.ok,
-      );
+      ).equals(HttpStatusCode.ok);
     });
   });
 
@@ -176,7 +185,7 @@ void main() {
         });
 
       final res = await req(app, .get, '/static/css/main.css');
-      expect(res.status, HttpStatusCode.ok);
+      check(res.status).equals(HttpStatusCode.ok);
     });
   });
 
@@ -188,8 +197,10 @@ void main() {
         r.get('/{id}', (req) => Response.text('user:${req.param('id')}'));
       });
 
-      expect((await req(app, .get, '/users')).status, HttpStatusCode.ok);
-      expect((await req(app, .get, '/users/42')).status, HttpStatusCode.ok);
+      check((await req(app, .get, '/users')).status).equals(HttpStatusCode.ok);
+      check(
+        (await req(app, .get, '/users/42')).status,
+      ).equals(HttpStatusCode.ok);
     });
 
     test('supports mount(...) standalone router mounting', () async {
@@ -199,14 +210,12 @@ void main() {
 
       final app = Router()..mount('/admin', admin.call);
 
-      expect(
+      check(
         (await req(app, .get, '/admin/dashboard')).status,
-        HttpStatusCode.ok,
-      );
-      expect(
+      ).equals(HttpStatusCode.ok);
+      check(
         (await req(app, .get, '/admin/settings')).status,
-        HttpStatusCode.ok,
-      );
+      ).equals(HttpStatusCode.ok);
     });
 
     test('supports mount(...) on root path /', () async {
@@ -216,8 +225,8 @@ void main() {
 
       final app = Router()..mount('/', subApp.call);
 
-      expect((await req(app, .get, '/')).bodyText, 'root index');
-      expect((await req(app, .get, '/ping')).bodyText, 'pong');
+      check((await req(app, .get, '/')).bodyText).equals('root index');
+      check((await req(app, .get, '/ping')).bodyText).equals('pong');
     });
 
     test('supports middleware group(...) scoping', () async {
@@ -239,11 +248,11 @@ void main() {
         });
 
       await req(app, .get, '/public');
-      expect(trace, ['global']);
+      check(trace).deepEquals(['global']);
 
       trace.clear();
       await req(app, .get, '/private');
-      expect(trace, ['global', 'auth']);
+      check(trace).deepEquals(['global', 'auth']);
     });
 
     test('supports nested route(...) with scoped middlewares', () async {
@@ -271,11 +280,11 @@ void main() {
         });
 
       await req(app, .get, '/api/v1/ping');
-      expect(trace, ['root', 'v1']);
+      check(trace).deepEquals(['root', 'v1']);
 
       trace.clear();
       await req(app, .get, '/api/v1/users/99');
-      expect(trace, ['root', 'v1', 'usersMw']);
+      check(trace).deepEquals(['root', 'v1', 'usersMw']);
     });
   });
 
@@ -284,7 +293,7 @@ void main() {
       final app = Router()..get('/hello', (req) => Response.text('hello'));
 
       final res = await req(app, .get, '/unknown');
-      expect(res.status, HttpStatusCode.notFound);
+      check(res.status).equals(HttpStatusCode.notFound);
     });
 
     test('returns custom notFound handler', () async {
@@ -293,7 +302,7 @@ void main() {
         ..notFound((req) => Response.text('custom 404', status: .notFound));
 
       final res = await req(app, .get, '/missing');
-      expect(res.status, HttpStatusCode.notFound);
+      check(res.status).equals(HttpStatusCode.notFound);
     });
 
     test('returns 405 Method Not Allowed with Allow header', () async {
@@ -302,9 +311,9 @@ void main() {
         ..post('/users', (req) => Response.text('post users'));
 
       final res = await req(app, .delete, '/users');
-      expect(res.status, HttpStatusCode.methodNotAllowed);
-      expect(res.header('Allow'), contains('GET'));
-      expect(res.header('Allow'), contains('POST'));
+      check(res.status).equals(HttpStatusCode.methodNotAllowed);
+      check(res.header('Allow')).isNotNull().contains('GET');
+      check(res.header('Allow')).isNotNull().contains('POST');
     });
 
     test('returns custom methodNotAllowed handler', () async {
@@ -315,33 +324,30 @@ void main() {
         );
 
       final res = await req(app, .delete, '/users');
-      expect(res.status, HttpStatusCode.methodNotAllowed);
+      check(res.status).equals(HttpStatusCode.methodNotAllowed);
     });
 
     test('throws StateError when use() is called after routes', () {
       final app = Router()..get('/hello', (req) => Response.text('hello'));
 
-      expect(
+      check(
         () => app.use(
           (next) {
             return (req) => next(req);
           },
         ),
-        throwsStateError,
-      );
+      ).throws<StateError>();
     });
 
     test('throws ArgumentError on invalid patterns or duplicate keys', () {
       final app = Router();
 
-      expect(
+      check(
         () => app.get('/users/*/{id}', (req) => Response.text('err')),
-        throwsArgumentError,
-      );
-      expect(
+      ).throws<ArgumentError>();
+      check(
         () => app.get('/users/{id}/{id}', (req) => Response.text('err')),
-        throwsArgumentError,
-      );
+      ).throws<ArgumentError>();
     });
 
     test(
@@ -365,8 +371,8 @@ void main() {
           });
 
         final res = await req(app, .get, '/admin/dashboard');
-        expect(res.status, HttpStatusCode.ok);
-        expect(trace, ['groupMw']);
+        check(res.status).equals(HttpStatusCode.ok);
+        check(trace).deepEquals(['groupMw']);
       },
     );
 
@@ -377,8 +383,8 @@ void main() {
           ..get('/static/*', (req) => Response.text('file:${req.param('*')}'));
 
         final res = await req(app, .get, '/static/');
-        expect(res.status, HttpStatusCode.ok);
-        expect(res.bodyText, 'file:');
+        check(res.status).equals(HttpStatusCode.ok);
+        check(res.bodyText).equals('file:');
       },
     );
 
@@ -388,12 +394,11 @@ void main() {
         final app = Router();
         app.group((r) {
           r.get('/hello', (req) => Response.text('hello'));
-          expect(
+          check(
             () => r.use((next) {
               return (req) => next(req);
             }),
-            throwsStateError,
-          );
+          ).throws<StateError>();
         });
       },
     );
@@ -408,8 +413,9 @@ void main() {
 
         final routes = r.routes();
         final patterns = routes.map((r) => r.pattern).toSet();
-        expect(patterns, contains('/users'));
-        expect(patterns, contains('/users/{id}'));
+        check(patterns)
+          ..contains('/users')
+          ..contains('/users/{id}');
       });
 
       test('routes() includes correct HTTP methods per pattern', () {
@@ -423,8 +429,9 @@ void main() {
             .map((r) => r.method)
             .whereType<HttpMethod>()
             .toSet();
-        expect(allMethods, contains(HttpMethod.get));
-        expect(allMethods, contains(HttpMethod.post));
+        check(allMethods)
+          ..contains(HttpMethod.get)
+          ..contains(HttpMethod.post);
       });
 
       test('middlewares() returns registered middlewares', () {
@@ -432,13 +439,13 @@ void main() {
         Handler mw(Handler next) => next;
         r.use(mw);
 
-        expect(r.middlewares(), hasLength(1));
+        check(r.middlewares()).length.equals(1);
       });
 
       test('middlewares() returns empty list when none registered', () {
         final r = Router();
         r.get('/', (_) => const .status(.ok));
-        expect(r.middlewares(), isEmpty);
+        check(r.middlewares()).isEmpty();
       });
 
       test('match() returns true for existing routes', () {
@@ -446,23 +453,23 @@ void main() {
         r.get('/users', (_) => const .status(.ok));
         r.post('/users', (_) => const .status(.ok));
 
-        expect(r.match(HttpMethod.get, '/users'), isTrue);
-        expect(r.match(HttpMethod.post, '/users'), isTrue);
+        check(r.match(HttpMethod.get, '/users')).isTrue();
+        check(r.match(HttpMethod.post, '/users')).isTrue();
       });
 
       test('match() returns false for non-existing routes', () {
         final r = Router();
         r.get('/users', (_) => const .status(.ok));
 
-        expect(r.match(HttpMethod.get, '/nope'), isFalse);
+        check(r.match(HttpMethod.get, '/nope')).isFalse();
       });
 
       test('match() works with parameterized routes', () {
         final r = Router();
         r.get('/users/{id}', (_) => const .status(.ok));
 
-        expect(r.match(HttpMethod.get, '/users/42'), isTrue);
-        expect(r.match(HttpMethod.get, '/users'), isFalse);
+        check(r.match(HttpMethod.get, '/users/42')).isTrue();
+        check(r.match(HttpMethod.get, '/users')).isFalse();
       });
 
       test('find() returns matched pattern', () {
@@ -470,15 +477,15 @@ void main() {
         r.get('/users', (_) => const .status(.ok));
         r.get('/users/{id}', (_) => const .status(.ok));
 
-        expect(r.find(HttpMethod.get, '/users'), equals('/users'));
-        expect(r.find(HttpMethod.get, '/users/42'), equals('/users/{id}'));
+        check(r.find(HttpMethod.get, '/users')).equals('/users');
+        check(r.find(HttpMethod.get, '/users/42')).equals('/users/{id}');
       });
 
       test('find() returns null for non-existing routes', () {
         final r = Router();
         r.get('/users', (_) => const .status(.ok));
 
-        expect(r.find(HttpMethod.get, '/nope'), isNull);
+        check(r.find(HttpMethod.get, '/nope')).isNull();
       });
     });
 
@@ -493,15 +500,18 @@ void main() {
 
         final routes = r.routes();
         final route = routes.firstWhere((r) => r.pattern == '/users');
-        expect(route.meta, hasLength(2));
+        check(route.meta).length.equals(2);
 
         final desc = route.metaOf<_TestMeta>();
-        expect(desc, isNotNull);
-        expect(desc!.summary, equals('list users'));
+        check(desc)
+            .isNotNull()
+            .has((d) => d.summary, 'summary')
+            .equals(
+              'list users',
+            );
 
         final tag = route.metaOf<_Tag>();
-        expect(tag, isNotNull);
-        expect(tag!.name, equals('users'));
+        check(tag).isNotNull().has((t) => t.name, 'name').equals('users');
       });
 
       test('metaOf returns null when annotation type not found', () {
@@ -510,7 +520,7 @@ void main() {
 
         final routes = r.routes();
         final route = routes.firstWhere((r) => r.pattern == '/users');
-        expect(route.metaOf<_TestMeta>(), isNull);
+        check(route.metaOf<_TestMeta>()).isNull();
       });
 
       test('metaAll returns all annotations of given type', () {
@@ -524,8 +534,8 @@ void main() {
         final routes = r.routes();
         final route = routes.firstWhere((r) => r.pattern == '/users');
         final tags = route.metaAll<_Tag>();
-        expect(tags, hasLength(2));
-        expect(tags.map((t) => t.name), containsAll(['users', 'public']));
+        check(tags).length.equals(2);
+        check(tags.map((t) => t.name)).deepEquals(['users', 'public']);
       });
 
       test('routes without meta have empty meta list', () {
@@ -534,7 +544,7 @@ void main() {
 
         final routes = r.routes();
         final route = routes.firstWhere((r) => r.pattern == '/users');
-        expect(route.meta, isEmpty);
+        check(route.meta).isEmpty();
       });
     });
 
@@ -549,7 +559,9 @@ void main() {
           visited.add('${method.value} $fullRoute');
         });
 
-        expect(visited, containsAll(['GET /a', 'POST /b']));
+        check(visited)
+          ..contains('GET /a')
+          ..contains('POST /b');
       });
 
       test('walk includes meta annotations', () {
@@ -561,10 +573,14 @@ void main() {
         );
 
         r.walk((method, fullRoute, mws, meta) {
-          expect(meta, hasLength(1));
+          check(meta).length.equals(1);
           final m = meta.first;
-          expect(m, isA<_TestMeta>());
-          expect((m as _TestMeta).summary, equals('list'));
+          check(m)
+              .isA<_TestMeta>()
+              .has((m) => m.summary, 'summary')
+              .equals(
+                'list',
+              );
         });
       });
 
@@ -589,8 +605,8 @@ void main() {
             metaByMethod[method.value] = (meta.first as _TestMeta).summary;
           });
 
-          expect(metaByMethod['POST'], equals('create'));
-          expect(metaByMethod['GET'], equals('list'));
+          check(metaByMethod['POST']).equals('create');
+          check(metaByMethod['GET']).equals('list');
         },
       );
 
@@ -608,9 +624,10 @@ void main() {
           visited.add('${method.value} $fullRoute');
         });
 
-        expect(visited, contains('GET /health'));
-        expect(visited, contains('GET /admin/stats'));
-        expect(visited, contains('GET /admin/logs'));
+        check(visited)
+          ..contains('GET /health')
+          ..contains('GET /admin/stats')
+          ..contains('GET /admin/logs');
       });
 
       test('merged routes are callable', () async {
@@ -621,8 +638,10 @@ void main() {
           ..get('/health', (req) => Response.text('ok'))
           ..merge(adminRouter);
 
-        expect((await req(app, .get, '/health')).bodyText, 'ok');
-        expect((await req(app, .get, '/admin/stats')).bodyText, 'admin stats');
+        check((await req(app, .get, '/health')).bodyText).equals('ok');
+        check(
+          (await req(app, .get, '/admin/stats')).bodyText,
+        ).equals('admin stats');
       });
 
       test('merge preserves sub-router middlewares', () async {
@@ -647,15 +666,15 @@ void main() {
           ..merge(adminRouter);
 
         await req(app, .get, '/admin/stats');
-        expect(trace, ['rootMw', 'adminMw']);
+        check(trace).deepEquals(['rootMw', 'adminMw']);
       });
 
       test('automatically falls back to GET route for HEAD requests', () async {
         final app = Router()..get('/items', (req) => .text('item list'));
 
         final headRes = await req(app, .head, '/items');
-        expect(headRes.status.value, equals(200));
-        expect(headRes.bodyText, equals('item list'));
+        check(headRes.status.value).equals(200);
+        check(headRes.bodyText).equals('item list');
       });
     });
   });

@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
 import 'package:ion_web/src/http/connection.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 Future<InternetAddress?> _run(
   Middleware middleware, {
@@ -147,13 +148,12 @@ void main() {
           headers: testCase.$2.isNotEmpty ? {'X-Real-IP': testCase.$2} : null,
         );
         if (testCase.$3 != null) {
-          expect(
+          check(
+            because: 'Test case: ${testCase.$1}',
             clientIp,
-            equals(InternetAddress(testCase.$3!)),
-            reason: 'Test case: ${testCase.$1}',
-          );
+          ).equals(InternetAddress(testCase.$3!));
         } else {
-          expect(clientIp, isNull, reason: 'Test case: ${testCase.$1}');
+          check(because: 'Test case: ${testCase.$1}', clientIp).isNull();
         }
       }
     });
@@ -205,11 +205,10 @@ void main() {
           Middlewares.clientIp(),
           multiHeaders: testCase.$2,
         );
-        expect(
+        check(
+          because: 'Test case: ${testCase.$1}',
           clientIp?.address,
-          equals(testCase.$3),
-          reason: 'Test case: ${testCase.$1}',
-        );
+        ).equals(testCase.$3);
       }
     });
   });
@@ -251,11 +250,10 @@ void main() {
           Middlewares.clientIp(source: ClientIpSource.xff()),
           multiHeaders: multiHeaders,
         );
-        expect(
+        check(
+          because: 'Test case: ${testCase.$1}',
           clientIp?.address,
-          equals(testCase.$3),
-          reason: 'Test case: ${testCase.$1}',
-        );
+        ).equals(testCase.$3);
       }
     });
   });
@@ -329,19 +327,17 @@ void main() {
           ),
           multiHeaders: multiHeaders,
         );
-        expect(
+        check(
+          because: 'Test case: ${testCase.$1}',
           clientIp?.address,
-          equals(testCase.$4),
-          reason: 'Test case: ${testCase.$1}',
-        );
+        ).equals(testCase.$4);
       }
     });
 
     test('throws on bad prefix syntax', () {
-      expect(
+      check(
         () => ClientIpSource.xff(trustedPrefixes: ['not-a-cidr']),
-        throwsA(isA<AssertionError>()),
-      );
+      ).throws<AssertionError>();
     });
 
     test('fail closed on unparseable mid-chain entry', () async {
@@ -382,11 +378,10 @@ void main() {
           ),
           multiHeaders: multiHeaders,
         );
-        expect(
+        check(
+          because: 'Test case: ${testCase.$1}',
           clientIp?.address,
-          equals(testCase.$4),
-          reason: 'Test case: ${testCase.$1}',
-        );
+        ).equals(testCase.$4);
       }
     });
 
@@ -397,7 +392,7 @@ void main() {
         ),
         headers: {'X-Forwarded-For': '::ffff:10.0.0.5, 10.0.0.1'},
       );
-      expect(clientIp, isNull);
+      check(clientIp).isNull();
     });
 
     test('zoned IPv6 cannot bypass trusted v6 prefix', () async {
@@ -407,7 +402,7 @@ void main() {
         ),
         headers: {'X-Forwarded-For': '2606:4700::1%attacker, 2606:4700::5'},
       );
-      expect(clientIp, isNull);
+      check(clientIp).isNull();
     });
   });
 
@@ -438,19 +433,17 @@ void main() {
           ),
           multiHeaders: multiHeaders,
         );
-        expect(
+        check(
+          because: 'Count=${testCase.$1}, headers=${testCase.$2}',
           clientIp?.address,
-          equals(testCase.$3),
-          reason: 'Count=${testCase.$1}, headers=${testCase.$2}',
-        );
+        ).equals(testCase.$3);
       }
     });
 
     test('throws on numTrustedProxies < 1', () {
-      expect(
+      check(
         () => ClientIpSource.xffTrustedProxies(0),
-        throwsA(isA<AssertionError>()),
-      );
+      ).throws<AssertionError>();
     });
   });
 
@@ -467,7 +460,7 @@ void main() {
           Middlewares.clientIp(source: const ClientIpSource.remoteAddr()),
           remoteAddress: testCase.$1,
         );
-        expect(clientIp?.address, equals(testCase.$2));
+        check(clientIp?.address).equals(testCase.$2);
       }
     });
 
@@ -475,7 +468,7 @@ void main() {
       final clientIp = await _run(
         Middlewares.clientIp(source: const ClientIpSource.remoteAddr()),
       );
-      expect(clientIp, isNull);
+      check(clientIp).isNull();
     });
   });
 
@@ -495,7 +488,7 @@ void main() {
           'X-Forwarded-For': '2.2.2.2',
         },
       );
-      expect(clientIp?.address, equals('1.1.1.1'));
+      check(clientIp?.address).equals('1.1.1.1');
     });
 
     test('earlier value persists when later finds nothing', () async {
@@ -512,7 +505,7 @@ void main() {
           'X-Forwarded-For': '8.8.8.8',
         },
       );
-      expect(clientIp?.address, equals('8.8.8.8'));
+      check(clientIp?.address).equals('8.8.8.8');
     });
 
     test('earlier persists when later xff finds all trusted', () async {
@@ -528,7 +521,7 @@ void main() {
           'X-Forwarded-For': '10.0.0.1, 10.0.0.2',
         },
       );
-      expect(clientIp?.address, equals('192.0.2.1'));
+      check(clientIp?.address).equals('192.0.2.1');
     });
   });
 
@@ -539,7 +532,7 @@ void main() {
         remoteAddress: InternetAddress('99.99.99.99'),
         headers: {'X-Forwarded-For': '1.2.3.4, 5.6.7.8'},
       );
-      expect(clientIp?.address, equals('99.99.99.99'));
+      check(clientIp?.address).equals('99.99.99.99');
     });
 
     test('GHSA-3fxj-6jh8-hvhx: behind proxy uses xff', () async {
@@ -549,7 +542,7 @@ void main() {
         ),
         headers: {'X-Forwarded-For': '1.2.3.4, 99.99.99.99'},
       );
-      expect(clientIp?.address, equals('99.99.99.99'));
+      check(clientIp?.address).equals('99.99.99.99');
     });
 
     test(
@@ -559,7 +552,7 @@ void main() {
           Middlewares.clientIp(source: ClientIpSource.xff()),
           headers: {'X-Forwarded-For': '192.0.2.2, 192.0.2.1'},
         );
-        expect(clientIp?.address, equals('192.0.2.1'));
+        check(clientIp?.address).equals('192.0.2.1');
       },
     );
 
@@ -570,7 +563,7 @@ void main() {
         ),
         headers: {'X-Forwarded-For': '127.0.0.1, 99.99.99.99'},
       );
-      expect(clientIp?.address, equals('99.99.99.99'));
+      check(clientIp?.address).equals('99.99.99.99');
     });
 
     test('GHSA-rjr7-jggh-pgcp: only opted-in header is read', () async {
@@ -582,7 +575,7 @@ void main() {
           'X-Real-IP': '203.0.113.7',
         },
       );
-      expect(clientIp?.address, equals('203.0.113.7'));
+      check(clientIp?.address).equals('203.0.113.7');
     });
   });
 }

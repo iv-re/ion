@@ -1,6 +1,7 @@
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 import 'utils.dart';
 
@@ -19,13 +20,13 @@ void main() {
           });
 
         final response = await makeRequest(app, path: '/test');
-        expect(response, isA<Response>());
+        check(response).isA<Response>();
 
         final header = response.headers.firstWhere(
           (h) => h.name == 'X-Request-Id',
         );
-        expect(header.value, isNotEmpty);
-        expect(header.value, equals(capturedId));
+        check(header.value).isNotEmpty();
+        check(capturedId).isNotNull().equals(header.value);
       },
     );
 
@@ -49,8 +50,8 @@ void main() {
       final header = response.headers.firstWhere(
         (h) => h.name == 'X-Request-Id',
       );
-      expect(header.value, equals(existingId));
-      expect(capturedId, equals(existingId));
+      check(header.value).equals(existingId);
+      check(capturedId).equals(existingId);
     });
 
     test('supports custom headerName and idGenerator', () async {
@@ -70,7 +71,7 @@ void main() {
       final header = response.headers.firstWhere(
         (h) => h.name == 'X-Trace-Id',
       );
-      expect(header.value, equals('custom-id-999'));
+      check(header.value).equals('custom-id-999');
     });
   });
 }

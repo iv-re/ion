@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
 
 extension on Response {
   String get bodyText {
@@ -57,7 +58,7 @@ void main() {
             headers: [const .contentLength(100)],
           ),
         );
-        expect(res.status, equals(HttpStatusCode.ok));
+        check(res.status).equals(HttpStatusCode.ok);
       });
 
       test('allows request when Content-Length is below limit', () async {
@@ -67,7 +68,7 @@ void main() {
             headers: [const .contentLength(50)],
           ),
         );
-        expect(res.status, equals(HttpStatusCode.ok));
+        check(res.status).equals(HttpStatusCode.ok);
       });
 
       test('rejects request when Content-Length exceeds limit', () async {
@@ -77,7 +78,7 @@ void main() {
             headers: [const .contentLength(200)],
           ),
         );
-        expect(res.status, equals(HttpStatusCode.contentTooLarge));
+        check(res.status).equals(HttpStatusCode.contentTooLarge);
       });
 
       test('does not read body on fast-path rejection', () async {
@@ -94,24 +95,24 @@ void main() {
           ),
         );
 
-        expect(bodyRead, isFalse);
+        check(bodyRead).isFalse();
       });
     });
 
     group('stream counting (chunked / no Content-Length)', () {
       test('allows body exactly at limit', () async {
         final res = await app(_makeRequest(body: _bodyOfSize(100)));
-        expect(res.status, equals(HttpStatusCode.ok));
+        check(res.status).equals(HttpStatusCode.ok);
       });
 
       test('allows body below limit', () async {
         final res = await app(_makeRequest(body: _bodyOfSize(42)));
-        expect(res.status, equals(HttpStatusCode.ok));
+        check(res.status).equals(HttpStatusCode.ok);
       });
 
       test('rejects body exceeding limit in a single chunk', () async {
         final res = await app(_makeRequest(body: _bodyOfSize(101)));
-        expect(res.status, equals(HttpStatusCode.contentTooLarge));
+        check(res.status).equals(HttpStatusCode.contentTooLarge);
       });
 
       test('rejects body exceeding limit across multiple chunks', () async {
@@ -119,7 +120,7 @@ void main() {
         final res = await app(
           _makeRequest(body: _chunkedBody([40, 40, 40])),
         );
-        expect(res.status, equals(HttpStatusCode.contentTooLarge));
+        check(res.status).equals(HttpStatusCode.contentTooLarge);
       });
 
       test('allows body within limit split across multiple chunks', () async {
@@ -127,7 +128,7 @@ void main() {
         final res = await app(
           _makeRequest(body: _chunkedBody([30, 30, 30])),
         );
-        expect(res.status, equals(HttpStatusCode.ok));
+        check(res.status).equals(HttpStatusCode.ok);
       });
     });
 
@@ -148,8 +149,8 @@ void main() {
             headers: [const .contentLength(200)],
           ),
         );
-        expect(res.status, equals(HttpStatusCode.contentTooLarge));
-        expect(res.bodyText, equals('too big'));
+        check(res.status).equals(HttpStatusCode.contentTooLarge);
+        check(res.bodyText).equals('too big');
       });
 
       test('uses custom response when stream exceeds limit', () async {
@@ -166,8 +167,8 @@ void main() {
           });
 
         final res = await customApp(_makeRequest(body: _bodyOfSize(200)));
-        expect(res.status, equals(HttpStatusCode.contentTooLarge));
-        expect(res.bodyText, equals('too big'));
+        check(res.status).equals(HttpStatusCode.contentTooLarge);
+        check(res.bodyText).equals('too big');
       });
     });
   });
