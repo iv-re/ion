@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:ion_extra/ion_extra.dart';
 import 'package:ion_router/ion_router.dart';
 import 'package:ion_test/ion_test.dart';
 import 'package:ion_web/ion_web.dart';
-import 'package:test/test.dart';
+import 'package:test/scaffolding.dart';
+import 'package:test/test.dart' show TestFailure, isA;
 
 class _TestUserDto implements ToJson {
   _TestUserDto({required this.id, required this.name});
@@ -326,7 +328,7 @@ void main() {
       expect: () => Response.text('Hello World'),
       verify: (target, response) {
         verifyCalled = true;
-        expect(response.status, HttpStatusCode.ok);
+        check(response.status).equals(HttpStatusCode.ok);
       },
       tearDown: () {
         tearDownCalled = true;
@@ -334,9 +336,9 @@ void main() {
     );
 
     test('verifies lifecycle flags were executed', () {
-      expect(setUpCalled, isTrue);
-      expect(verifyCalled, isTrue);
-      expect(tearDownCalled, isTrue);
+      check(setUpCalled).isTrue();
+      check(verifyCalled).isTrue();
+      check(tearDownCalled).isTrue();
     });
 
     // Custom Matcher expect
@@ -362,7 +364,7 @@ void main() {
       final client = IonTestClient(app.call);
       final response = await client.get('/test');
 
-      expect(response.status, HttpStatusCode.ok);
+      check(response.status).equals(HttpStatusCode.ok);
     });
   });
 
@@ -394,7 +396,7 @@ void main() {
               customComparatorCalled = true;
               final actualBytes = await actual.readBytes();
               final expectedBytes = await expected.readBytes();
-              expect(actualBytes, equals(expectedBytes));
+              check(actualBytes).deepEquals(expectedBytes);
             },
           ),
         );
@@ -405,12 +407,11 @@ void main() {
         final response = await client.get('/html');
 
         final active = getResponseComparators();
-        expect(
+        check(
           active.first.canCompare(response, _HtmlResponse('<h1>Hello</h1>')),
-          isTrue,
-        );
+        ).isTrue();
         await active.first.compare(response, _HtmlResponse('<h1>Hello</h1>'));
-        expect(customComparatorCalled, isTrue);
+        check(customComparatorCalled).isTrue();
       },
     );
 
@@ -428,7 +429,7 @@ void main() {
           compare: (actual, expected) async {
             final actualStr = utf8.decode(await actual.readBytes());
             final expectedStr = utf8.decode(await expected.readBytes());
-            expect(actualStr.trim(), equals(expectedStr.trim()));
+            check(actualStr.trim()).equals(expectedStr.trim());
           },
         ),
       ],
@@ -447,7 +448,7 @@ void main() {
             compare: (actual, expected) async {
               final actualStr = utf8.decode(await actual.readBytes());
               final expectedStr = utf8.decode(await expected.readBytes());
-              expect(actualStr, equals(expectedStr));
+              check(actualStr).equals(expectedStr);
             },
           ),
         );
@@ -467,10 +468,10 @@ void main() {
       );
 
       registerResponseComparator(comp);
-      expect(getResponseComparators().contains(comp), isTrue);
+      check(getResponseComparators().contains(comp)).isTrue();
 
       unregisterResponseComparator(comp);
-      expect(getResponseComparators().contains(comp), isFalse);
+      check(getResponseComparators().contains(comp)).isFalse();
     });
 
     test(
@@ -480,15 +481,13 @@ void main() {
         final actual = RawJson({'id': 1, 'name': 'Alice'});
         final expected = RawJson({'id': 1, 'name': 'Bob'});
 
-        expect(
-          () => comparator.compare(actual, expected),
-          throwsA(
-            isA<TestFailure>().having(
-              (e) => e.message,
-              'message',
-              contains('diff'),
-            ),
-          ),
+        await check(
+          comparator.compare(actual, expected),
+        ).throws<TestFailure>(
+          (it) => it
+              .has((e) => e.message, 'message')
+              .isA<String>()
+              .contains('diff'),
         );
       },
     );
@@ -504,15 +503,13 @@ void main() {
           yield const SseEvent.text('Goodbye World', event: 'greeting');
         });
 
-        expect(
-          () => comparator.compare(actual, expected),
-          throwsA(
-            isA<TestFailure>().having(
-              (e) => e.message,
-              'message',
-              contains('diff'),
-            ),
-          ),
+        await check(
+          comparator.compare(actual, expected),
+        ).throws<TestFailure>(
+          (it) => it
+              .has((e) => e.message, 'message')
+              .isA<String>()
+              .contains('diff'),
         );
       },
     );
@@ -524,15 +521,13 @@ void main() {
         final actual = Response.text('Hello Actual');
         final expected = Response.text('Hello Expected');
 
-        expect(
-          () => comparator.compare(actual, expected),
-          throwsA(
-            isA<TestFailure>().having(
-              (e) => e.message,
-              'message',
-              contains('diff'),
-            ),
-          ),
+        await check(
+          comparator.compare(actual, expected),
+        ).throws<TestFailure>(
+          (it) => it
+              .has((e) => e.message, 'message')
+              .isA<String>()
+              .contains('diff'),
         );
       },
     );
