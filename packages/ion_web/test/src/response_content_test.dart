@@ -226,6 +226,32 @@ void main() {
         );
       },
     );
+
+    test(
+      'withHeaders preserves ContentResponse and ResolvableResponse type',
+      () async {
+        final res = Response.content(
+          read: (start, end) => Stream.value(Uint8List.fromList([1, 2, 3])),
+          size: 3,
+          name: 'test.bin',
+          lastModified: lastModified,
+        );
+
+        final withHeaders = res.withHeaders([
+          const TestCustomHeader('x-test', 'content-custom'),
+        ]);
+
+        expect(withHeaders, isA<ContentResponse>());
+        expect(withHeaders, isA<ResolvableResponse>());
+
+        final req = TestRequestBuilder.get('/test.bin').build();
+        final resolved = await (withHeaders as ResolvableResponse).resolve(req);
+
+        expect(resolved.status, equals(HttpStatusCode.ok));
+        expect(resolved.headers.get('x-test')?.value, equals('content-custom'));
+        expect(await readResponseBodyBytes(resolved), equals([1, 2, 3]));
+      },
+    );
   });
 
   group('Response.file', () {
@@ -257,6 +283,30 @@ void main() {
       final text = await readResponseBodyText(res);
       expect(text, equals('Hello from file!'));
     });
+
+    test(
+      'withHeaders preserves FileResponse and ResolvableResponse type',
+      () async {
+        final file = File('${tempDir.path}/hello.txt');
+        await file.writeAsString('Hello from file!');
+
+        final res = Response.file(file);
+        final withHeaders = res.withHeaders([
+          const TestCustomHeader('x-test', 'file-custom'),
+        ]);
+
+        expect(withHeaders, isA<FileResponse>());
+        expect(withHeaders, isA<ResolvableResponse>());
+
+        final req = TestRequestBuilder.get('/sample.txt').build();
+        final resolved = await (withHeaders as ResolvableResponse).resolve(req);
+
+        expect(resolved.status, equals(HttpStatusCode.ok));
+        expect(resolved.headers.get('x-test')?.value, equals('file-custom'));
+        final text = await readResponseBodyText(resolved);
+        expect(text, equals('Hello from file!'));
+      },
+    );
 
     test('returns 404 Not Found for non-existent file', () async {
       final file = File('${tempDir.path}/non_existent.txt');

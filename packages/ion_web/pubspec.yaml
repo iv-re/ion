@@ -2,7 +2,7 @@ name: ion_web
 description: HTTP/1.1 web server.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/ion_web
-version: 0.1.0
+version: 0.1.1
 resolution: workspace
 
 environment:

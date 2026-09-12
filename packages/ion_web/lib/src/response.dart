@@ -223,6 +223,9 @@ abstract class ResolvableResponse extends Response {
 
   /// Resolves this response for transmission given the incoming [request].
   FutureOr<Response> resolve(Request request);
+
+  @override
+  ResolvableResponse withHeaders(Iterable<TypedHeader> extraHeaders);
 }
 
 class WebSocketResponse extends ResolvableResponse {
@@ -242,7 +245,7 @@ class WebSocketResponse extends ResolvableResponse {
   final bool Function(String? origin)? checkOrigin;
 
   @override
-  Response withHeaders(Iterable<TypedHeader> extraHeaders) {
+  WebSocketResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
     if (extraHeaders.isEmpty) return this;
     return WebSocketResponse(
       onWebSocket,
@@ -346,6 +349,18 @@ class ContentResponse extends ResolvableResponse {
   final int size;
   final String name;
   final DateTime lastModified;
+
+  @override
+  ContentResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
+    if (extraHeaders.isEmpty) return this;
+    return ContentResponse(
+      read: read,
+      size: size,
+      name: name,
+      lastModified: lastModified,
+      headers: [...headers, ...extraHeaders],
+    );
+  }
 
   @override
   Future<Response> resolve(Request request) async {
@@ -457,6 +472,15 @@ class FileResponse extends ResolvableResponse {
   }) : super(status: .ok);
 
   final File file;
+
+  @override
+  FileResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
+    if (extraHeaders.isEmpty) return this;
+    return FileResponse(
+      file,
+      headers: [...headers, ...extraHeaders],
+    );
+  }
 
   @override
   Future<Response> resolve(Request request) async {
