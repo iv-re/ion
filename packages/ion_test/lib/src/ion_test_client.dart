@@ -17,7 +17,14 @@ class IonTestClient {
   final Uri baseUrl;
 
   /// Sends a raw [Request] directly through the handler.
-  Future<Response> send(Request request) async => await handler(request);
+  Future<Response> send(Request request) async {
+    var response = await handler(request);
+    while (response is ResolvableResponse) {
+      final resResult = response.resolve(request);
+      response = resResult is Response ? resResult : await resResult;
+    }
+    return response;
+  }
 
   /// Performs a GET request.
   Future<Response> get(
@@ -138,9 +145,11 @@ class IonTestClient {
     final uri = baseUrl.resolve(path);
     if (query == null || query.isEmpty) return uri;
 
-    final existingQuery = Map<String, String>.from(uri.queryParameters);
-    existingQuery.addAll(query);
-
-    return uri.replace(queryParameters: existingQuery);
+    return uri.replace(
+      queryParameters: {
+        ...uri.queryParameters,
+        ...query,
+      },
+    );
   }
 }

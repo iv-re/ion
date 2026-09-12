@@ -2,7 +2,7 @@ name: ion_test
 description: In-process testing utilities for ion_web handlers.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/ion_test
-version: 0.2.0
+version: 0.2.1
 resolution: workspace
 
 environment:

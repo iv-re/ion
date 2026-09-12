@@ -366,6 +366,121 @@ void main() {
 
       check(response.status).equals(HttpStatusCode.ok);
     });
+
+    test('auto-resolves ResolvableResponse (e.g. Response.content)', () async {
+      final sample = utf8.encode('Hello, Resolvable World!');
+      final app = Router()
+        ..get('/file', (req) {
+          return Response.content(
+            read: (start, end) => Stream.value(
+              Uint8List.fromList(sample.sublist(start, end)),
+            ),
+            size: sample.length,
+            name: 'hello.txt',
+            lastModified: DateTime.utc(2025),
+            headers: [ETagHeader.strong('v1')],
+          );
+        });
+
+      final client = IonTestClient(app.call);
+
+      // Full content request
+      final response = await client.get('/file');
+      check(response.status).equals(HttpStatusCode.ok);
+      check(
+        response.headers.get<ContentTypeHeader>()?.value,
+      ).equals('text/plain');
+      final bytes = await response.readBytes();
+      check(bytes).deepEquals(sample);
+
+      // Range request (206 Partial Content)
+      final rangeResponse = await client.get(
+        '/file',
+        headers: [const .range('bytes=0-4')],
+      );
+      check(rangeResponse.status).equals(HttpStatusCode.partialContent);
+      check(await rangeResponse.readText()).equals('Hello');
+
+      // Conditional request (304 Not Modified)
+      final notModifiedResponse = await client.get(
+        '/file',
+        headers: [IfNoneMatchHeader.etag(const EntityTag('v1'))],
+      );
+      check(notModifiedResponse.status).equals(HttpStatusCode.notModified);
+    });
+  });
+
+  group('IonResponseUtils', () {
+    test(
+      'readText decodes response body with default UTF-8 and custom encoding',
+      () async {
+        final textRes = Response.text('Привет, мир!');
+        check(await textRes.readText()).equals('Привет, мир!');
+
+        const emptyRes = Response.status(.noContent);
+        check(await emptyRes.readText()).equals('');
+
+        final latin1Bytes = Uint8List.fromList([
+          0x68,
+          0x65,
+          0x6c,
+          0x6c,
+          0x6f,
+        ]);
+        final latin1Res = Response.bytes(latin1Bytes);
+        check(await latin1Res.readText(encoding: latin1)).equals('hello');
+      },
+    );
+
+    test(
+      'readBytes and readText are idempotent for StreamResponseBody',
+      () async {
+        final controller = StreamController<Uint8List>();
+        controller.add(Uint8List.fromList(utf8.encode('chunk1 ')));
+        controller.add(Uint8List.fromList(utf8.encode('chunk2')));
+        unawaited(controller.close());
+
+        final response = Response.stream(controller.stream);
+
+        // Multiple reads do not throw "Stream has already been listened to"
+        final bytes1 = await response.readBytes();
+        final bytes2 = await response.readBytes();
+        final text1 = await response.readText();
+        final text2 = await response.readText();
+
+        check(utf8.decode(bytes1)).equals('chunk1 chunk2');
+        check(bytes2).deepEquals(bytes1);
+        check(text1).equals('chunk1 chunk2');
+        check(text2).equals('chunk1 chunk2');
+      },
+    );
+
+    ionTest(
+      'allows reading streamed response in both expect and verify',
+      build: () {
+        return (Router()..get('/stream-test', (req) {
+              final controller = StreamController<Uint8List>();
+              controller.add(
+                Uint8List.fromList(utf8.encode('stream-data')),
+              );
+              controller.close();
+              return Response.stream(
+                controller.stream,
+                headers: const [
+                  .contentType('text/plain', charset: 'utf-8'),
+                ],
+              );
+            }))
+            .call;
+      },
+      act: (c) => c.get('/stream-test'),
+      expect: () => Response.text('stream-data'),
+      verify: (_, res) async {
+        final bytes = await res.readBytes();
+        check(bytes).isNotEmpty();
+        check(await res.readText()).equals('stream-data');
+      },
+    );
   });
 
   group('ResponseComparator', () {

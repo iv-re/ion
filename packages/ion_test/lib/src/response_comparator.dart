@@ -6,21 +6,37 @@ import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:ion_web/ion_web.dart';
 import 'package:test/test.dart' as test;
 
+final Expando<Future<Uint8List>> _cachedResponseBytes = Expando();
+
 /// Extension on [Response] providing helper utilities for testing and
 /// comparison.
 extension IonResponseUtils on Response {
   /// Reads the complete body bytes of this [Response].
-  Future<Uint8List> readBytes() async {
+  Future<Uint8List> readBytes() {
     switch (body) {
       case EmptyResponseBody():
-        return Uint8List(0);
+        return Future.value(Uint8List(0));
       case BytesResponseBody(:final bytes):
-        return bytes;
+        return Future.value(bytes);
       case StreamResponseBody(:final stream):
-        final builder = BytesBuilder();
-        await stream.forEach(builder.add);
-        return builder.takeBytes();
+        final cached = _cachedResponseBytes[this];
+        if (cached != null) return cached;
+
+        final future = _readStream(stream);
+        _cachedResponseBytes[this] = future;
+        return future;
     }
+  }
+
+  static Future<Uint8List> _readStream(Stream<Uint8List> stream) async {
+    final builder = BytesBuilder();
+    await stream.forEach(builder.add);
+    return builder.takeBytes();
+  }
+
+  /// Reads the complete body as a decoded string using [encoding].
+  Future<String> readText({Encoding encoding = utf8}) async {
+    return encoding.decode(await readBytes());
   }
 
   /// Returns the media type string of the Content-Type header, or `null` if not
