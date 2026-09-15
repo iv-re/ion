@@ -2,7 +2,7 @@ name: ion_openapi
 description: OpenAPI 3.x spec generator for ion_router.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/ion_openapi
-version: 0.2.0
+version: 0.2.1
 resolution: workspace
 
 environment:
