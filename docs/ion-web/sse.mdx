@@ -57,3 +57,33 @@ return Response.sse(() async* {
   }
 });
 ```
+
+## Error Handling
+
+By default, an unhandled exception inside the generator closes the stream, causing standard SSE clients (such as browser `EventSource`) to attempt to reconnect.
+
+Use the `onError` parameter to intercept synchronous and asynchronous errors, log them, and optionally emit a final `SseEvent` before closing the stream:
+
+```dart
+return Response.sse(
+  () => eventStream(),
+  onError: (error, stackTrace) {
+    logger.error(
+      'sse stream failed',
+      attrs: [
+        .error(error),
+        .stackTrace(stackTrace),
+      ],
+    );
+    return const SseEvent.json(
+      {'error': 'Stream aborted due to an internal error'},
+      event: 'error',
+    );
+  },
+);
+```
+
+- **Returning `SseEvent`**: Encodes and emits the event to the client before gracefully terminating the stream.
+- **Returning `null`**: Gracefully terminates the stream without sending an additional event.
+- **Omitting `onError`**: Rethrows the error, causing the connection to abort.
+

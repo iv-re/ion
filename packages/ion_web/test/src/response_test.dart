@@ -89,6 +89,112 @@ void main() {
     );
 
     test(
+      'Response.sse invokes onError and emits error event when streamBuilder '
+      'throws synchronously',
+      () async {
+        Object? caughtError;
+        final response = Response.sse(
+          () => throw StateError('builder boom'),
+          onError: (error, stackTrace) {
+            caughtError = error;
+            return const SseEvent.json(
+              {'error': 'sync_failed'},
+              event: 'error',
+            );
+          },
+        );
+
+        final text = await readResponseBodyText(response);
+        expect(caughtError, isA<StateError>());
+        expect(text, contains('event: error\n'));
+        expect(text, contains('data: {"error":"sync_failed"}\n\n'));
+      },
+    );
+
+    test(
+      'Response.sse invokes onError and emits error event when stream emits '
+      'async error',
+      () async {
+        Stream<SseEvent> generateSse() async* {
+          yield const SseEvent.text('before');
+          throw StateError('stream boom');
+        }
+
+        Object? caughtError;
+        final response = Response.sse(
+          generateSse,
+          onError: (error, stackTrace) {
+            caughtError = error;
+            return const SseEvent.text('stream_failed', event: 'error');
+          },
+        );
+
+        final text = await readResponseBodyText(response);
+        expect(caughtError, isA<StateError>());
+        expect(text, contains('data: before\n\n'));
+        expect(text, contains('event: error\ndata: stream_failed\n\n'));
+      },
+    );
+
+    test(
+      'Response.sse invokes async onError and emits returned SseEvent',
+      () async {
+        Stream<SseEvent> generateSse() async* {
+          throw StateError('async error');
+        }
+
+        final response = Response.sse(
+          generateSse,
+          onError: (error, stackTrace) async {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            return const SseEvent.json({'resolved': true}, event: 'error');
+          },
+        );
+
+        final text = await readResponseBodyText(response);
+        expect(text, contains('event: error\n'));
+        expect(text, contains('data: {"resolved":true}\n\n'));
+      },
+    );
+
+    test(
+      'Response.sse gracefully terminates stream without extra event when '
+      'onError returns null',
+      () async {
+        var onErrorCalled = false;
+        Stream<SseEvent> generateSse() async* {
+          yield const SseEvent.text('hello');
+          throw StateError('silent boom');
+        }
+
+        final response = Response.sse(
+          generateSse,
+          onError: (error, stackTrace) {
+            onErrorCalled = true;
+            return null;
+          },
+        );
+
+        final text = await readResponseBodyText(response);
+        expect(onErrorCalled, isTrue);
+        expect(text, equals('data: hello\n\n'));
+      },
+    );
+
+    test('Response.sse rethrows error when onError is not provided', () async {
+      Stream<SseEvent> generateSse() async* {
+        yield const SseEvent.text('start');
+        throw StateError('unhandled boom');
+      }
+
+      final response = Response.sse(generateSse);
+      expect(
+        () => readResponseBodyText(response),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test(
       'Response.text sets content-type text/plain and content-length',
       () async {
         final response = Response.text('Hello World');

@@ -50,6 +50,18 @@ final class StreamResponseBody extends ResponseBody {
   final int? contentLength;
 }
 
+/// Callback invoked when an error occurs during Server-Sent Events (SSE)
+/// streaming.
+///
+/// Returning a non-null [SseEvent] sends that event to the client before
+/// the stream terminates cleanly. Returning `null` gracefully terminates
+/// the stream without emitting any further events.
+typedef SseErrorHandler =
+    FutureOr<SseEvent?> Function(
+      Object error,
+      StackTrace stackTrace,
+    );
+
 class Response {
   const Response({
     required this.status,
@@ -101,11 +113,25 @@ class Response {
   }) : body = .stream(stream, contentLength: contentLength),
        onUpgrade = null;
 
+  /// Creates a Server-Sent Events (SSE) streaming response.
+  ///
+  /// The [streamBuilder] is evaluated lazily when response transmission begins.
+  /// Standard SSE response headers (`Content-Type: text/event-stream`,
+  /// `Cache-Control: no-cache`, `Connection: keep-alive`) are automatically
+  /// set.
+  ///
+  /// If [onError] is provided, any synchronous exception thrown by
+  /// [streamBuilder] or asynchronous error emitted by the resulting stream is
+  /// passed to [onError]. If [onError] returns an [SseEvent], it is emitted to
+  /// the client before the stream terminates cleanly. If it returns `null`,
+  /// the stream closes gracefully. If [onError] is omitted, errors are
+  /// rethrown, causing the connection to abort.
   Response.sse(
     Stream<SseEvent> Function() streamBuilder, {
     this.status = .ok,
     List<TypedHeader> headers = const [],
-  }) : body = .stream(_deferSseStream(streamBuilder)),
+    SseErrorHandler? onError,
+  }) : body = .stream(_deferSseStream(streamBuilder, onError)),
        headers = [
          const .contentType('text/event-stream'),
          const .cacheControl(noCache: true),
@@ -169,8 +195,24 @@ class Response {
 
   static Stream<Uint8List> _deferSseStream(
     Stream<SseEvent> Function() streamBuilder,
+    SseErrorHandler? onError,
   ) async* {
-    yield* streamBuilder().transform(const SseEncoder());
+    if (onError == null) {
+      yield* streamBuilder().transform(const SseEncoder());
+      return;
+    }
+
+    const encoder = SseEncoder();
+    try {
+      await for (final event in streamBuilder()) {
+        yield encoder.convert(event);
+      }
+    } catch (error, stackTrace) {
+      final event = await onError(error, stackTrace);
+      if (event != null) {
+        yield encoder.convert(event);
+      }
+    }
   }
 
   /// The HTTP status code of this response.
