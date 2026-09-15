@@ -160,6 +160,9 @@ void main() {
       check(
         content['text/event-stream']['itemSchema']['type'],
       ).equals('object');
+      check(
+        content['text/event-stream']['schema']['type'],
+      ).equals('object');
 
       // Check Headers
       final headers = okResponse['headers'];

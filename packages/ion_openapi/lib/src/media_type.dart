@@ -47,7 +47,8 @@ class ApiMediaType {
 
   Map<String, Object?> toJson() {
     return {
-      if (isStreaming) 'itemSchema': schema.value else 'schema': schema.value,
+      'schema': schema.value,
+      if (isStreaming) 'itemSchema': schema.value,
     };
   }
 }
