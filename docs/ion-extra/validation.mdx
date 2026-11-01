@@ -18,7 +18,7 @@ class RegisterDto {
         ]),
         email    = json.string('email', rules: [.email()]),
         password = json.string('password', rules: [.length(min: 8)]),
-        age      = json.integerOrNull('age', rules: [.range(min: 18, max: 120)]),
+        age      = json.intOrNull('age', rules: [.range(min: 18, max: 120)]),
         website  = json.stringOrNull('website', rules: [.url()]);
 
   final String username;

@@ -2,7 +2,7 @@ name: ion_test
 description: In-process testing utilities for ion_web handlers.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/ion_test
-version: 0.2.1
+version: 0.3.0
 resolution: workspace
 
 environment:
@@ -10,7 +10,7 @@ environment:
 
 dependencies:
   diff_match_patch: ^0.4.1
-  ion_extra: ^0.2.0
+  ion_extra: ^0.3.0
   ion_web: ^0.1.0
   http_sse: ^0.1.0
   meta: ^1.12.0

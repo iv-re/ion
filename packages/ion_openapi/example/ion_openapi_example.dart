@@ -7,9 +7,9 @@ class TaskDto implements ToJson {
   TaskDto(this.id, this.title, this.completed);
 
   TaskDto.fromJson(JsonObject json)
-    : id = json.integer('id'),
+    : id = json.int('id'),
       title = json.string('title'),
-      completed = json.boolean('completed');
+      completed = json.bool('completed');
 
   static final Schema schema = JsonObject.schema(
     TaskDto.fromJson,

@@ -27,13 +27,13 @@ app.post('/users', (req) async {
 });
 ```
 
-### `req.jsonList<T>(fromJson)` — Array
+### `req.jsonList<T>(items)` — Array
 
-Decodes a top-level JSON array and maps each element:
+Decodes a top-level JSON array and decodes each element with the `JsonType` `items`:
 
 ```dart
 app.post('/users/batch', (req) async {
-  final users = await req.jsonList(CreateUserDto.fromJson);
+  final users = await req.jsonList(.object(CreateUserDto.fromJson));
   return .text('Imported ${users.length} users');
 });
 ```
@@ -82,8 +82,9 @@ All three set `Content-Type: application/json` automatically.
 
 By default, `req.json()` and `req.jsonList()` collect **all** validation errors before throwing, so clients receive a complete list of what's wrong in a single response.
 
-To throw on the first error instead:
+To throw on the first error instead, pass `failFast: true`:
 
 ```dart
-RequestJsonExtractor.accumulateValidationErrors = false;
+final dto = await req.json(CreateUserDto.fromJson, failFast: true);
+final ids = await req.jsonList(.int, failFast: true);
 ```

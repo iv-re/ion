@@ -49,13 +49,6 @@ class JsonList extends RawJson {
 /// Extension on [Request] for extracting and parsing JSON payloads into domain
 /// models.
 extension RequestJsonExtractor on Request {
-  /// If set to `true` (the default), JSON extraction will accumulate all
-  /// validation errors across the entire payload.
-  ///
-  /// If set to `false`, it will throw immediately on the first validation
-  /// error encountered.
-  static bool accumulateValidationErrors = true;
-
   /// Decodes the JSON request body and returns the raw decoded JSON value as
   /// [T].
   ///
@@ -84,30 +77,27 @@ extension RequestJsonExtractor on Request {
 
   /// Decodes the JSON request body and maps it using [fromJson] callback.
   ///
-  /// Collects and throws [ValidationErrors] if any validation errors occur.
-  Future<R> json<R>(R Function(JsonObject json) fromJson) async {
-    final jsonData = await rawJson<Map<String, Object?>>();
-    final jsonObj = JsonObject(jsonData);
-
-    return accumulateValidationErrors
-        ? jsonObj.parse(fromJson)
-        : fromJson(jsonObj);
+  /// Collects all validation errors and throws them as [ValidationErrors].
+  /// With [failFast], throws on the first error instead.
+  Future<R> json<R>(
+    R Function(JsonObject json) fromJson, {
+    bool failFast = false,
+  }) async {
+    final json = JsonObject(await rawJson<Map<String, Object?>>());
+    return failFast ? fromJson(json) : json.parse(fromJson);
   }
 
-  /// Decodes a top-level JSON array request body and maps each element using
-  /// [mapper] callback (or direct type casting for primitives).
+  /// Decodes a top-level JSON array request body and decodes each element
+  /// with [items], such as `.string` or `.object(ItemDto.fromJson)`.
   ///
-  /// Collects and throws [ValidationErrors] if any validation errors occur.
-  Future<List<R>> jsonList<R>([
-    R Function(JsonObject json)? mapper,
-    List<ValidationRule<R>> rules = const [],
-  ]) async {
-    final jsonData = await rawJson<List<Object?>>();
-    final container = JsonObject({r'$': jsonData});
-    return accumulateValidationErrors
-        ? container.parse(
-            (json) => json.list<R>(r'$', mapper: mapper, rules: rules),
-          )
-        : container.list<R>(r'$', mapper: mapper, rules: rules);
+  /// Collects all validation errors and throws them as [ValidationErrors].
+  /// With [failFast], throws on the first error instead.
+  Future<List<R>> jsonList<R>(
+    JsonType<R> items, {
+    bool failFast = false,
+  }) async {
+    final json = JsonObject({r'$': await rawJson<List<Object?>>()});
+    List<R> read(JsonObject json) => json.list(r'$', items);
+    return failFast ? read(json) : json.parse(read);
   }
 }

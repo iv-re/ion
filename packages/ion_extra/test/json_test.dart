@@ -52,40 +52,44 @@ void main() {
   });
 
   group('RequestJsonExtractor', () {
-    test('json respects accumulateValidationErrors = false', () async {
-      RequestJsonExtractor.accumulateValidationErrors = false;
-      addTearDown(() => RequestJsonExtractor.accumulateValidationErrors = true);
+    test('json collects all errors', () async {
+      final jsonBytes = utf8.encode('{"username": "usr", "email": "invalid"}');
+      final req = _createTestRequest(jsonBytes);
 
+      await check(req.json(_UserDto.fromJson)).throws<ValidationErrors>(
+        (it) => it.has((e) => e.toJson().keys, 'keys').deepEquals([
+          'username',
+          'email',
+          'age',
+        ]),
+      );
+    });
+
+    test('json with failFast throws on the first error', () async {
       final jsonBytes = utf8.encode('{"username": "usr", "email": "invalid"}');
       final req = _createTestRequest(jsonBytes);
 
       // Since it fails fast, it should only contain 'username' (the first
       // checked field). 'email' and 'age' won't be evaluated.
       await check(
-        req.json(
-          (j) => _UserDto(
-            username: j.string('username', rules: [.length(min: 5)]),
-            email: j.string('email', rules: [.email()]),
-            age: j.integer('age'),
-          ),
-        ),
+        req.json(_UserDto.fromJson, failFast: true),
       ).throws<ValidationErrors>(
         (it) => it.has((e) => e.toJson().keys, 'keys').deepEquals(['username']),
       );
     });
 
-    test('jsonList respects accumulateValidationErrors = false', () async {
-      RequestJsonExtractor.accumulateValidationErrors = false;
-      addTearDown(() => RequestJsonExtractor.accumulateValidationErrors = true);
-
+    test('jsonList with failFast throws on the first error', () async {
       final jsonBytes = utf8.encode('[{"title": ""}, {"title": ""}]');
       final req = _createTestRequest(jsonBytes);
 
       // Since it fails fast, it should only contain the error for the
       // first index.
       await check(
-        req.jsonList<_ItemDto>(
-          (j) => _ItemDto(title: j.string('title', rules: [.length(min: 1)])),
+        req.jsonList(
+          .object(
+            (j) => _ItemDto(title: j.string('title', rules: [.length(min: 1)])),
+          ),
+          failFast: true,
         ),
       ).throws<ValidationErrors>(
         (it) =>
@@ -99,7 +103,7 @@ void main() {
       );
       final req = _createTestRequest(jsonBytes);
 
-      final items = await req.jsonList(_ItemDto.fromJson);
+      final items = await req.jsonList(.object(_ItemDto.fromJson));
       check(items)
         ..length.equals(2)
         ..has((it) => it[0].title, 'items[0].title').equals('Item 1')
@@ -110,7 +114,7 @@ void main() {
       final jsonBytes = utf8.encode('["apple", "banana"]');
       final req = _createTestRequest(jsonBytes);
 
-      final items = await req.jsonList<String>();
+      final items = await req.jsonList(.string);
       check(items).deepEquals(['apple', 'banana']);
     });
 
@@ -121,7 +125,7 @@ void main() {
         final req = _createTestRequest(jsonBytes);
 
         await check(
-          req.jsonList(_ItemDto.fromJson),
+          req.jsonList(.object(_ItemDto.fromJson)),
         ).throws<ValidationErrors>(
           (it) => it.has((e) => e.toJson(), 'toJson').containsKey(r'$'),
         );
@@ -179,8 +183,11 @@ void main() {
           (it) =>
               it.has((e) => e.errors[r'$']?.first, 'first error').isNotNull()
                 ..has((err) => err.code, 'code').equals('type')
-                ..has((err) => err.params['expected'], 'expected').equals('map')
-                ..has((err) => err.params['actual'], 'actual').equals('list'),
+                ..has(
+                  (err) => err.params['expected'],
+                  'expected',
+                ).equals('object')
+                ..has((err) => err.params['actual'], 'actual').equals('array'),
         );
 
         final req2 = _createTestRequest(utf8.encode('{"foo": "bar"}'));
@@ -193,8 +200,8 @@ void main() {
                 ..has(
                   (err) => err.params['expected'],
                   'expected',
-                ).equals('list')
-                ..has((err) => err.params['actual'], 'actual').equals('map'),
+                ).equals('array')
+                ..has((err) => err.params['actual'], 'actual').equals('object'),
         );
       },
     );
@@ -225,11 +232,10 @@ Request _createTestRequest(List<int> bodyBytes) {
 }
 
 class _UserDto {
-  _UserDto({
-    required this.username,
-    required this.email,
-    required this.age,
-  });
+  _UserDto.fromJson(JsonObject json)
+    : username = json.string('username', rules: [.length(min: 5)]),
+      email = json.string('email', rules: [.email()]),
+      age = json.int('age');
 
   final String username;
   final String email;

@@ -1,3 +1,7 @@
+## 0.3.0
+
+- **Breaking:** upgrade `ion_extra` to `^0.3.0`.
+
 ## 0.2.1
 
 - Include `schema` alongside `itemSchema` for streaming media types (`ApiMediaType.sse`).

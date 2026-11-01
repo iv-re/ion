@@ -4,26 +4,26 @@ import 'package:test/scaffolding.dart';
 
 void main() {
   group('typeNameOf', () {
-    test('returns canonical name for Map variants', () {
-      check(typeNameOf<Map<String, Object?>>()).equals('map');
-      check(typeNameOf<Map<String, dynamic>>()).equals('map');
-      check(typeNameOf<Map<int, String>>()).equals('map');
-      check(typeNameOf<Map<Object, Object>>()).equals('map');
+    test('returns object for Map variants', () {
+      check(typeNameOf<Map<String, Object?>>()).equals('object');
+      check(typeNameOf<Map<String, dynamic>>()).equals('object');
+      check(typeNameOf<Map<int, String>>()).equals('object');
+      check(typeNameOf<Map<Object, Object>>()).equals('object');
     });
 
-    test('returns canonical name for List variants', () {
-      check(typeNameOf<List<Object?>>()).equals('list');
-      check(typeNameOf<List<dynamic>>()).equals('list');
-      check(typeNameOf<List<String>>()).equals('list');
-      check(typeNameOf<List<int>>()).equals('list');
+    test('returns array for List variants', () {
+      check(typeNameOf<List<Object?>>()).equals('array');
+      check(typeNameOf<List<dynamic>>()).equals('array');
+      check(typeNameOf<List<String>>()).equals('array');
+      check(typeNameOf<List<int>>()).equals('array');
     });
 
-    test('returns canonical name for primitives', () {
+    test('returns JSON Schema names for primitives', () {
       check(typeNameOf<String>()).equals('string');
-      check(typeNameOf<int>()).equals('int');
-      check(typeNameOf<double>()).equals('double');
+      check(typeNameOf<int>()).equals('integer');
+      check(typeNameOf<double>()).equals('number');
       check(typeNameOf<num>()).equals('number');
-      check(typeNameOf<bool>()).equals('bool');
+      check(typeNameOf<bool>()).equals('boolean');
     });
 
     test('returns toString() for custom and other types', () {

@@ -1,163 +1,120 @@
-import 'dart:collection';
-
 import 'package:ion_web/ion_web.dart';
 import 'package:json_codable/json_codable.dart';
 
 /// Extension on [Request] for extracting and parsing URL query parameters into
 /// domain models.
 extension RequestQueryExtractor on Request {
-  /// If set to `true` (the default), query parameter extraction will accumulate
-  /// all validation errors across the entire query map.
+  /// Extracts the URL query parameters and maps them using [fromJson]
+  /// callback.
   ///
-  /// If set to `false`, it will throw immediately on the first validation
-  /// error encountered.
-  static bool accumulateValidationErrors = true;
-
-  /// Extracts and decodes the URL query parameters and maps them using
-  /// [fromJson] callback.
+  /// Values stay strings until a getter reads them, so `json.string('zip')`
+  /// keeps `007` and `json.int('page')` converts `2`. Keys nest with dot and
+  /// bracket notation: `filter.page`, `filter[page]`, `tags[]` and
+  /// `items[0][id]`.
   ///
-  /// Collects and throws [ValidationErrors] if any validation errors occur.
-  R query<R>(R Function(JsonObject json) fromJson) {
-    final queryMap = _LazyQueryMap(uri.queryParametersAll);
-    final jsonObj = JsonObject(queryMap);
-    return accumulateValidationErrors
-        ? jsonObj.parse(fromJson)
-        : fromJson(jsonObj);
+  /// Collects all validation errors and throws them as [ValidationErrors].
+  /// With [failFast], throws on the first error instead.
+  R query<R>(R Function(JsonObject json) fromJson, {bool failFast = false}) {
+    final json = JsonObject(
+      _decodeQuery(uri.query),
+      source: .text,
+    );
+    return failFast ? fromJson(json) : json.parse(fromJson);
   }
 }
 
-class _LazyQueryMap extends MapBase<String, Object?> {
-  _LazyQueryMap(this._raw);
+/// Builds a read-only tree from [query], a URL query string.
+///
+/// A key splits into segments at `.` and `[...]`. Values that share a path are
+/// joined in order, so `ids=1&ids[]=2` gives `['1', '2']`. A path with one
+/// value holds a string, and an object whose keys are all indices becomes a
+/// list ordered by index. When a path has both values and nested keys, the
+/// nested keys win.
+Map<String, Object?> _decodeQuery(String query) {
+  final root = _QueryNode();
+  for (final pair in query.split('&')) {
+    if (pair.isEmpty) continue;
+    final equals = pair.indexOf('=');
+    final key = Uri.decodeQueryComponent(
+      equals == -1 ? pair : pair.substring(0, equals),
+    );
+    final value = equals == -1
+        ? ''
+        : Uri.decodeQueryComponent(pair.substring(equals + 1));
 
-  final Map<String, List<String>> _raw;
-  final Map<String, Object?> _cache = {};
+    final segments = _segments(key);
+    if (segments == null) continue;
 
-  @override
-  bool containsKey(Object? key) {
-    if (key is! String) return false;
-    if (_cache.containsKey(key)) return true;
-    if (_raw.containsKey(key)) return true;
-    if (_raw.containsKey('$key[]')) return true;
-
-    final keyLen = key.length;
-    for (final k in _raw.keys) {
-      if (k.length > keyLen && k.startsWith(key)) {
-        final ch = k.codeUnitAt(keyLen);
-        if (ch == 46 || ch == 91) return true; // '.' (46) or '[' (91)
-      }
+    var node = root;
+    for (final segment in segments) {
+      node = node.children.putIfAbsent(segment, _QueryNode.new);
     }
-    return false;
+    node.values.add(value);
   }
-
-  @override
-  Object? operator [](Object? key) {
-    if (key is! String) return null;
-    if (_cache.containsKey(key)) return _cache[key];
-
-    final directValues = _raw[key];
-    if (directValues != null && directValues.isNotEmpty) {
-      final decoded = directValues.length == 1
-          ? _parseValue(directValues[0])
-          : directValues.map(_parseValue).toList();
-      _cache[key] = decoded;
-      return decoded;
-    }
-
-    final bracketValues = _raw['$key[]'];
-    if (bracketValues != null && bracketValues.isNotEmpty) {
-      final decoded = bracketValues.map(_parseValue).toList();
-      _cache[key] = decoded;
-      return decoded;
-    }
-
-    final keyLen = key.length;
-    Map<String, List<String>>? nestedRaw;
-
-    for (final entry in _raw.entries) {
-      final k = entry.key;
-      if (k.length > keyLen && k.startsWith(key)) {
-        final ch = k.codeUnitAt(keyLen);
-        if (ch == 46) {
-          // '.'
-          (nestedRaw ??= {})[k.substring(keyLen + 1)] = entry.value;
-        } else if (ch == 91) {
-          // '['
-          final closeIdx = k.indexOf(']', keyLen + 1);
-          if (closeIdx != -1) {
-            final subKey =
-                k.substring(keyLen + 1, closeIdx) + k.substring(closeIdx + 1);
-            (nestedRaw ??= {})[subKey] = entry.value;
-          }
-        }
-      }
-    }
-
-    if (nestedRaw != null && nestedRaw.isNotEmpty) {
-      final isIndexedArray = nestedRaw.keys.every((k) {
-        final idx = int.tryParse(k);
-        return idx != null && idx >= 0;
-      });
-
-      if (isIndexedArray) {
-        final entries = nestedRaw.entries.toList()
-          ..sort((a, b) => int.parse(a.key).compareTo(int.parse(b.key)));
-        final list = entries.map((e) {
-          final vals = e.value;
-          return vals.length == 1
-              ? _parseValue(vals[0])
-              : vals.map(_parseValue).toList();
-        }).toList();
-        _cache[key] = list;
-        return list;
-      }
-
-      final nestedMap = _LazyQueryMap(nestedRaw);
-      _cache[key] = nestedMap;
-      return nestedMap;
-    }
-
-    return null;
-  }
-
-  @override
-  Iterable<String> get keys => _raw.keys;
-
-  @override
-  void operator []=(String key, Object? value) => _cache[key] = value;
-
-  @override
-  Object? remove(Object? key) {
-    throw UnsupportedError('Read-only query map');
-  }
-
-  @override
-  void clear() => _cache.clear();
+  return root.toObject();
 }
 
-Object _parseValue(String value) {
-  if (value.isEmpty) return value;
+final class _QueryNode {
+  final List<String> values = [];
+  final Map<String, _QueryNode> children = {};
 
-  final len = value.length;
-  if (len == 4) {
-    if (value.equalsIgnoreAsciiCase('true')) return true;
-  } else if (len == 5) {
-    if (value.equalsIgnoreAsciiCase('false')) return false;
+  Object? toValue() {
+    if (children.isEmpty) {
+      return values.length == 1 ? values[0] : List<String>.unmodifiable(values);
+    }
+
+    final indices = <(int, _QueryNode)>[];
+    for (final MapEntry(:key, :value) in children.entries) {
+      final index = _index(key);
+      if (index == null) return toObject();
+      indices.add((index, value));
+    }
+    indices.sort((a, b) => a.$1.compareTo(b.$1));
+    return List<Object?>.unmodifiable([
+      for (final (_, node) in indices) node.toValue(),
+    ]);
   }
 
-  final first = value.codeUnitAt(0);
-  final isPossibleNumber =
-      (first >= 48 && first <= 57) || // '0'-'9'
-      first == 45 || // '-'
-      first == 43 || // '+'
-      first == 46; // '.'
-
-  if (!isPossibleNumber) return value;
-
-  final intVal = int.tryParse(value);
-  if (intVal != null) return intVal;
-
-  final doubleVal = double.tryParse(value);
-  if (doubleVal != null) return doubleVal;
-
-  return value;
+  Map<String, Object?> toObject() => Map.unmodifiable({
+    for (final MapEntry(:key, :value) in children.entries) key: value.toValue(),
+  });
 }
+
+/// Splits [key] into path segments, dropping empty `[]` segments, or returns
+/// `null` when [key] has no name. Text after an unclosed `[` is kept as is.
+List<String>? _segments(String key) {
+  final segments = <String>[];
+  var start = 0;
+  for (var i = 0; i < key.length; i++) {
+    final char = key.codeUnitAt(i);
+    if (char == _dot) {
+      if (i > start) segments.add(key.substring(start, i));
+      start = i + 1;
+    } else if (char == _open) {
+      final close = key.indexOf(']', i + 1);
+      if (close == -1) break;
+      if (i > start) segments.add(key.substring(start, i));
+      if (close > i + 1) segments.add(key.substring(i + 1, close));
+      start = close + 1;
+      i = close;
+    }
+  }
+  if (start < key.length) segments.add(key.substring(start));
+  return segments.isEmpty ? null : segments;
+}
+
+/// Parses [key] as a list index: digits with no leading zeros.
+int? _index(String key) {
+  if (key.isEmpty || key.length > 9) return null;
+  if (key.length > 1 && key.codeUnitAt(0) == _zero) return null;
+  for (var i = 0; i < key.length; i++) {
+    final char = key.codeUnitAt(i);
+    if (char < _zero || char > _nine) return null;
+  }
+  return int.parse(key);
+}
+
+const _dot = 0x2E;
+const _open = 0x5B;
+const _zero = 0x30;
+const _nine = 0x39;

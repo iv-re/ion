@@ -9,7 +9,7 @@ description: JSON parsing, query decoding, validation, and schema generation for
 
 ```yaml
 dependencies:
-  ion_extra: ^0.2.0
+  ion_extra: ^0.3.0
 ```
 
 ## Minimal Example
@@ -43,7 +43,7 @@ app.post('/users', (req) async {
     Parse JSON bodies with `req.json()` and return serialized DTOs with `Json`, `JsonList`, `RawJson`.
   </Card>
   <Card title="Query Parameters" icon="magnifying-glass" href="/ion-extra/query">
-    Type-safe `req.query()` with coercion, array notations, and nested objects.
+    Type-safe `req.query()` with on-read conversion, list notations, and nested objects.
   </Card>
   <Card title="Validation Rules" icon="shield" href="/ion-extra/validation">
     Field constraints (length, range, email, URL, regex, credit card) with `ValidationErrors`.

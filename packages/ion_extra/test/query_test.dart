@@ -5,13 +5,11 @@ import 'package:test/scaffolding.dart';
 
 void main() {
   group('RequestQueryExtractor', () {
-    test('query parses typed query parameters', () {
-      final uri = Uri.parse(
-        'http://localhost/items?page=2&limit=20&search=flutter&is_active=true&price=19.99&tags=dart&tags=web',
-      );
-      final req = _createTestRequestWithUri(uri);
-
-      final filters = req.query(_FiltersDto.fromJson);
+    test('parses typed query parameters', () {
+      final filters = _query(
+        'page=2&limit=20&search=flutter&is_active=true&price=19.99'
+        '&tags=dart&tags=web',
+      ).query(_FiltersDto.fromJson);
 
       check(filters.page).equals(2);
       check(filters.limit).equals(20);
@@ -21,190 +19,183 @@ void main() {
       check(filters.tags).deepEquals(['dart', 'web']);
     });
 
-    test(
-      'query throws ValidationErrors on type mismatches and rule failures',
-      () {
-        final uri = Uri.parse(
-          'http://localhost/items?page=0&is_active=notabool',
-        );
-        final req = _createTestRequestWithUri(uri);
-
-        check(() => req.query(_FiltersDto.fromJson)).throws<ValidationErrors>()
-          ..has((e) => e.toJson(), 'toJson').containsKey('page')
-          ..has((e) => e.toJson(), 'toJson').containsKey('is_active');
-      },
-    );
-
-    test('query respects accumulateValidationErrors = false', () {
-      RequestQueryExtractor.accumulateValidationErrors = false;
-      addTearDown(
-        () => RequestQueryExtractor.accumulateValidationErrors = true,
-      );
-
-      final uri = Uri.parse(
-        'http://localhost/items?page=0&is_active=notabool',
-      );
-      final req = _createTestRequestWithUri(uri);
-
-      check(() => req.query(_FiltersDto.fromJson))
-          .throws<ValidationErrors>()
-          .has((e) => e.toJson().keys, 'keys')
-          .deepEquals(['page']);
+    test('converts values only to the type a getter asks for', () {
+      _query('phone=%2B79991234567&zip=007&q=true&n=10&price=-12.50').query((
+        json,
+      ) {
+        check(json.string('phone')).equals('+79991234567');
+        check(json.string('zip')).equals('007');
+        check(json.string('q')).equals('true');
+        check(json.string('n')).equals('10');
+        check(json.int('n')).equals(10);
+        check(json.double('n')).equals(10);
+        check(json.double('price')).equals(-12.5);
+      });
     });
 
-    test('query evaluates map lazily on requested keys', () {
-      final uri = Uri.parse(
-        'http://localhost/items?page=1&unused_param=abc&ignored=123',
-      );
-      final req = _createTestRequestWithUri(uri);
-
-      final page = req.query((json) => json.integer('page'));
-      check(page).equals(1);
+    test('collects type mismatches and rule failures', () {
+      check(
+        () => _query('page=0&is_active=notabool').query(_FiltersDto.fromJson),
+      ).throwsCodes().deepEquals({
+        'page': ['range'],
+        'is_active': ['type'],
+      });
     });
 
-    test('query parses indexed arrays and sorts out-of-order indices', () {
-      final uri = Uri.parse(
-        'http://localhost/items?user_ids[1]=20&user_ids[0]=10&user_ids[2]=30',
-      );
-      final req = _createTestRequestWithUri(uri);
-
-      final ids = req.query((json) => json.list<int>('user_ids'));
-      check(ids).deepEquals([10, 20, 30]);
+    test('with failFast throws on the first error', () {
+      check(
+        () => _query(
+          'page=0&is_active=notabool',
+        ).query(_FiltersDto.fromJson, failFast: true),
+      ).throwsCodes().deepEquals({
+        'page': ['range'],
+      });
     });
 
-    test('query parses bracket array notation tags[]', () {
-      final uri1 = Uri.parse(
-        'http://localhost/items?page=1&tags[]=dart&tags[]=flutter',
-      );
-      final req1 = _createTestRequestWithUri(uri1);
-
-      final filters1 = req1.query(_FiltersDto.fromJson);
-      check(filters1.tags).deepEquals(['dart', 'flutter']);
-
-      final uri2 = Uri.parse('http://localhost/products?category[]=phones');
-      final req2 = _createTestRequestWithUri(uri2);
-
-      final category = req2.query((json) => json.list<String>('category'));
-      check(category).deepEquals(['phones']);
+    test('treats empty values as absent except for strings', () {
+      _query('topic_id=&q=').query((json) {
+        check(json.intOrNull('topic_id')).isNull();
+        check(json.string('q')).equals('');
+      });
+      check(
+        () => _query('topic_id=').query((json) => json.int('topic_id')),
+      ).throwsCodes().deepEquals({
+        'topic_id': ['required'],
+      });
     });
 
-    test('query parses nested objects with dot and bracket notation', () {
-      final uri1 = Uri.parse(
-        'http://localhost/items?filter.search=dart&filter.page=1',
-      );
-      final req1 = _createTestRequestWithUri(uri1);
-      final search1 = req1.query(
-        (json) => json.object('filter', _FiltersDto.fromJson).search,
-      );
-      check(search1).equals('dart');
+    group('lists', () {
+      test('accept a single value', () {
+        check(
+          _query('note_ids=5').query((json) => json.list('note_ids', .int)),
+        ).deepEquals([5]);
+      });
 
-      final uri2 = Uri.parse(
-        'http://localhost/items?filter[search]=flutter&filter[page]=2',
-      );
-      final req2 = _createTestRequestWithUri(uri2);
-      final search2 = req2.query(
-        (json) => json.object('filter', _FiltersDto.fromJson).search,
-      );
-      check(search2).equals('flutter');
+      test('join repeated and bracket keys', () {
+        check(
+          _query('ids=1&ids[]=2&ids=3').query((json) => json.list('ids', .int)),
+        ).deepEquals([1, 2, 3]);
+        check(
+          _query('category[]=phones').query(
+            (json) => json.list('category', .string),
+          ),
+        ).deepEquals(['phones']);
+      });
 
-      final uri3 = Uri.parse(
-        'http://localhost/items?a[b][c]=42',
-      );
-      final req3 = _createTestRequestWithUri(uri3);
-      final val3 = req3.query(
-        (json) {
-          return json.object(
-            'a',
-            (j) => j.object('b', (j2) => j2.integer('c')),
-          );
-        },
-      );
-      check(val3).equals(42);
-    });
+      test('order indexed items by index', () {
+        check(
+          _query(
+            'user_ids[1]=20&user_ids[0]=10&user_ids[2]=30',
+          ).query((json) => json.list('user_ids', .int)),
+        ).deepEquals([10, 20, 30]);
+      });
 
-    test(
-      'query parses signed numbers, empty params, and case-insensitive '
-      'booleans',
-      () {
-        final uri = Uri.parse(
-          'http://localhost/items?page=-5&price=-12.50&temp=%2B25&q=',
-        );
-        final req = _createTestRequestWithUri(uri);
+      test('hold indexed objects', () {
+        final items = _query(
+          'items[1][id]=2&items[0][id]=1&items[0][name]=a&items[1][name]=b',
+        ).query((json) => json.list('items', .object(_ItemDto.fromJson)));
 
-        req.query((json) {
-          check(json.integer('page')).equals(-5);
-          check(json.float('price')).equals(-12.50);
-          check(json.integer('temp')).equals(25);
-          check(json.string('q')).equals('');
+        check([for (final item in items) (item.id, item.name)]).deepEquals([
+          (1, 'a'),
+          (2, 'b'),
+        ]);
+      });
+
+      test('report item errors at the item path', () {
+        check(
+          () => _query('ids=1&ids=x').query((json) => json.list('ids', .int)),
+        ).throwsCodes().deepEquals({
+          'ids.1': ['type'],
         });
-
-        for (final v in ['true', 'TRUE', 'True', 'tRuE']) {
-          final u = Uri.parse('http://localhost/items?flag=$v');
-          final r = _createTestRequestWithUri(u);
-          check(r.query((json) => json.boolean('flag'))).isTrue();
-        }
-
-        for (final v in ['false', 'FALSE', 'False', 'fAlSe']) {
-          final u = Uri.parse('http://localhost/items?flag=$v');
-          final r = _createTestRequestWithUri(u);
-          check(r.query((json) => json.boolean('flag'))).isFalse();
-        }
-      },
-    );
-
-    test('query parses typed list of integers', () {
-      final uri = Uri.parse('http://localhost/items?ids=10&ids=20&ids=30');
-      final req = _createTestRequestWithUri(uri);
-
-      final ids = req.query((json) => json.list<int>('ids'));
-      check(ids).deepEquals([10, 20, 30]);
+      });
     });
 
-    test(
-      'query supports has checks for direct, bracket, and nested keys',
-      () {
-        final uri = Uri.parse(
-          'http://localhost/items?page=1&tags[]=dart&filter[search]=flutter',
-        );
-        final req = _createTestRequestWithUri(uri);
+    test('nests objects with dot and bracket notation', () {
+      for (final query in [
+        'filter.search=dart&filter.page=1',
+        'filter[search]=dart&filter[page]=1',
+        'filter.search=dart&filter[page]=1',
+      ]) {
+        final filter = _query(
+          query,
+        ).query((json) => json.object('filter', _FiltersDto.fromJson));
+        check(filter.search).equals('dart');
+        check(filter.page).equals(1);
+      }
 
-        req.query((json) {
-          check(json.has('page')).isTrue();
-          check(json.has('tags')).isTrue();
-          check(json.has('filter')).isTrue();
-          check(json.has('nonexistent')).isFalse();
-        });
-      },
-    );
+      check(
+        _query('a[b][c]=42').query(
+          (json) => json.object('a', (j) => j.object('b', (j) => j.int('c'))),
+        ),
+      ).equals(42);
+    });
 
-    test('query allows direct lookup of literal bracket key', () {
-      final uri = Uri.parse('http://localhost/items?filter[search]=flutter');
-      final req = _createTestRequestWithUri(uri);
+    test('reports nested errors at the nested path', () {
+      check(
+        () => _query(
+          'filter[page]=x',
+        ).query((json) => json.object('filter', _FiltersDto.fromJson)),
+      ).throwsCodes().deepEquals({
+        'filter.page': ['type'],
+      });
+    });
 
-      final val = req.query((json) => json.string('filter[search]'));
-      check(val).equals('flutter');
+    test('exposes normalized keys', () {
+      _query('page=1&tags[]=dart&filter[search]=flutter&filter.page=2').query((
+        json,
+      ) {
+        check(json.keys).deepEquals(['page', 'tags', 'filter']);
+        check(json.has('filter')).isTrue();
+        check(json.has('filter[search]')).isFalse();
+        check(json.has('nonexistent')).isFalse();
+        check(json.object('filter', (j) => j.keys)).deepEquals([
+          'search',
+          'page',
+        ]);
+      });
+    });
+
+    test('gives read-only values to raw reads', () {
+      final (repeated, indexed, nested) = _query(
+        'b=2&b=3&c[0]=x&d[e]=y',
+      ).query((json) => (json.any('b'), json.any('c'), json.any('d')));
+
+      check(() => (repeated as List<Object?>).add('4')).throws<Object>();
+      check(() => (indexed as List<Object?>).add('z')).throws<Object>();
+      check(
+        () => (nested as Map<String, Object?>)['f'] = 'z',
+      ).throws<Object>();
     });
   });
 }
 
-Request _createTestRequestWithUri(Uri uri) {
-  return Request(
-    const Stream.empty(),
-    method: .get,
-    uri: uri,
-    version: .http11,
-    headers: TypedHeaders([]),
-  );
+Request _query(String query) => Request(
+  const Stream.empty(),
+  method: .get,
+  uri: .parse('http://localhost/items?$query'),
+  version: .http11,
+  headers: TypedHeaders([]),
+);
+
+extension on Subject<Object? Function()> {
+  Subject<Map<String, List<String>>> throwsCodes() =>
+      throws<ValidationErrors>().has(
+        (e) => {
+          for (final MapEntry(:key, :value) in e.errors.entries)
+            key: [for (final error in value) error.code],
+        },
+        'error codes',
+      );
 }
 
 class _FiltersDto {
   _FiltersDto.fromJson(JsonObject json)
-    : page = json.integer('page', rules: [.range(min: 1)]),
-      limit = json.integerOrNull('limit') ?? 10,
+    : page = json.int('page', rules: [.range(min: 1)]),
+      limit = json.intOrNull('limit') ?? 10,
       search = json.stringOrNull('search'),
-      isActive = json.booleanOrNull('is_active'),
-      price = json.floatOrNull('price'),
-      tags = json.listOrNull<String>('tags') ?? const [];
+      isActive = json.boolOrNull('is_active'),
+      price = json.doubleOrNull('price'),
+      tags = json.listOrNull('tags', .string) ?? const [];
 
   final int page;
   final int limit;
@@ -212,4 +203,13 @@ class _FiltersDto {
   final bool? isActive;
   final double? price;
   final List<String> tags;
+}
+
+class _ItemDto {
+  _ItemDto.fromJson(JsonObject json)
+    : id = json.int('id'),
+      name = json.string('name');
+
+  final int id;
+  final String name;
 }

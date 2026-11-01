@@ -213,10 +213,10 @@ packages:
     dependency: transitive
     description:
       name: json_codable
-      sha256: "693ce08c7ca1ff12caaf0f58691d89947277318627a2aee896ffddf607c783c3"
+      sha256: "9c7ed00ae2df5e76ac2264e55fed6f62e0f245df381ba379914e51a81a116fbb"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.0"
+    version: "0.3.0"
   json_schema_builder:
     dependency: transitive
     description:

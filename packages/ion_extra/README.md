@@ -15,7 +15,7 @@ class CreateUserDto {
   CreateUserDto.fromJson(JsonObject json)
       : name = json.string('name', rules: [.length(min: 2)]),
         email = json.string('email', rules: [.email()]),
-        age = json.integerOrNull('age', rules: [.range(min: 18)]);
+        age = json.intOrNull('age', rules: [.range(min: 18)]);
 
   final String name;
   final String email;
@@ -43,9 +43,9 @@ Extract and validate URL query parameters into domain models with `req.query()`:
 ```dart
 class UserFilters {
   UserFilters.fromJson(JsonObject json)
-      : page = json.integer('page', rules: [.range(min: 1)]),
+      : page = json.int('page', rules: [.range(min: 1)]),
         search = json.stringOrNull('search'),
-        tags = json.listOrNull<String>('tags') ?? const [];
+        tags = json.listOrNull('tags', .string) ?? const [];
 
   final int page;
   final String? search;
@@ -60,13 +60,16 @@ app.get('/users', (req) {
 ```
 
 Query parsing supports:
-- Automatic type conversion (`int`, `double`, `bool`, `String`).
-- Multiple array notations: `?tags=a&tags=b` and HTML `?tags[]=a&tags[]=b`.
+- Conversion on read: values stay strings until a getter asks for a type, so
+  `?zip=007` reads as `'007'` with `json.string` and `?page=2` as `2` with
+  `json.int`. An empty value counts as absent except for strings.
+- List notations: `?tags=a&tags=b`, `?tags[]=a`, `?tags[0]=a` and lists of
+  objects `?items[0][id]=1`. A single value is accepted as a list.
 - Nested DTO objects: `?filter.search=alice` or `?filter[search]=alice`.
 
 ### Parsing JSON Requests & Responses
 
-Parse request bodies directly with `req.json()` and return responses with `Json` (for `ToJson` instances) or `Json.raw` (for raw maps):
+Parse request bodies directly with `req.json()` and return responses with `Json` (for `ToJson` instances) or `RawJson` (for raw maps):
 
 ```dart
 // Pass models implementing ToJson to Json() or JsonList()
