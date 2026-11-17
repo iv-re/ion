@@ -22,9 +22,7 @@ class RawJson extends Response {
     List<TypedHeader> headers = const [],
   }) : super.bytes(
          _jsonEncoder.convert(data) as Uint8List,
-         headers: headers.isEmpty
-             ? _defaultHeaders
-             : [..._defaultHeaders, ...headers],
+         headers: _defaultHeaders.replacing(headers),
        );
 
   static const List<TypedHeader> _defaultHeaders = [

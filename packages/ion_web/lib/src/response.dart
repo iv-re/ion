@@ -88,10 +88,9 @@ class Response {
     this.status = .ok,
     List<TypedHeader> headers = const [],
   }) : body = .bytes(utf8.encode(data)),
-       headers = [
-         const .contentType('text/plain', charset: 'utf-8'),
-         ...headers,
-       ],
+       headers = const <TypedHeader>[
+         .contentType('text/plain', charset: 'utf-8'),
+       ].replacing(headers),
        onUpgrade = null;
 
   Response.redirect(
@@ -99,10 +98,9 @@ class Response {
     this.status = .found,
     List<TypedHeader> headers = const [],
   }) : body = const .empty(),
-       headers = [
+       headers = <TypedHeader>[
          .location(location.toString()),
-         ...headers,
-       ],
+       ].replacing(headers),
        onUpgrade = null;
 
   Response.stream(
@@ -117,8 +115,7 @@ class Response {
   ///
   /// The [streamBuilder] is evaluated lazily when response transmission begins.
   /// Standard SSE response headers (`Content-Type: text/event-stream`,
-  /// `Cache-Control: no-cache`, `Connection: keep-alive`) are automatically
-  /// set.
+  /// `Cache-Control: no-cache`) are set unless [headers] replaces them.
   ///
   /// If [onError] is provided, any synchronous exception thrown by
   /// [streamBuilder] or asynchronous error emitted by the resulting stream is
@@ -132,12 +129,10 @@ class Response {
     List<TypedHeader> headers = const [],
     SseErrorHandler? onError,
   }) : body = .stream(_deferSseStream(streamBuilder, onError)),
-       headers = [
-         const .contentType('text/event-stream'),
-         const .cacheControl(noCache: true),
-         const .connectionKeepAlive(),
-         ...headers,
-       ],
+       headers = const <TypedHeader>[
+         .contentType('text/event-stream'),
+         .cacheControl(noCache: true),
+       ].replacing(headers),
        onUpgrade = null;
 
   const Response.upgrade(
@@ -230,12 +225,34 @@ class Response {
   /// The length of the content body in bytes, if known.
   int? get contentLength => body.contentLength;
 
-  /// Returns a new [Response] with [headers] appended to its header list.
+  /// Returns a copy of this response with [extraHeaders] set, like
+  /// `Header.Set` in Go: headers already present under the same names are
+  /// removed first. Several entries with one name in [extraHeaders] are all
+  /// kept.
+  ///
+  /// This replaces `Set-Cookie` too. To add a header next to the existing
+  /// ones, such as another cookie, use [withAppendedHeaders].
   Response withHeaders(Iterable<TypedHeader> extraHeaders) {
     if (extraHeaders.isEmpty) return this;
+    return copyWithHeaders(headers.replacing(extraHeaders));
+  }
+
+  /// Returns a copy of this response with [extraHeaders] added after the
+  /// existing headers, like `Header.Add` in Go. Nothing is removed.
+  Response withAppendedHeaders(Iterable<TypedHeader> extraHeaders) {
+    if (extraHeaders.isEmpty) return this;
+    return copyWithHeaders([...headers, ...extraHeaders]);
+  }
+
+  /// Returns a copy of this response with exactly [headers].
+  ///
+  /// [headers] are written as given, including repeated names. Subclasses
+  /// override this to keep their type through [withHeaders] and
+  /// [withAppendedHeaders].
+  Response copyWithHeaders(List<TypedHeader> headers) {
     return Response(
       status: status,
-      headers: [...headers, ...extraHeaders],
+      headers: headers,
       body: body,
       onUpgrade: onUpgrade,
     );
@@ -267,7 +284,19 @@ abstract class ResolvableResponse extends Response {
   FutureOr<Response> resolve(Request request);
 
   @override
-  ResolvableResponse withHeaders(Iterable<TypedHeader> extraHeaders);
+  ResolvableResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
+    if (extraHeaders.isEmpty) return this;
+    return copyWithHeaders(headers.replacing(extraHeaders));
+  }
+
+  @override
+  ResolvableResponse withAppendedHeaders(Iterable<TypedHeader> extraHeaders) {
+    if (extraHeaders.isEmpty) return this;
+    return copyWithHeaders([...headers, ...extraHeaders]);
+  }
+
+  @override
+  ResolvableResponse copyWithHeaders(List<TypedHeader> headers);
 }
 
 class WebSocketResponse extends ResolvableResponse {
@@ -287,13 +316,12 @@ class WebSocketResponse extends ResolvableResponse {
   final bool Function(String? origin)? checkOrigin;
 
   @override
-  WebSocketResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
-    if (extraHeaders.isEmpty) return this;
+  WebSocketResponse copyWithHeaders(List<TypedHeader> headers) {
     return WebSocketResponse(
       onWebSocket,
       protocolSelector: protocolSelector,
       compression: compression,
-      headers: [...headers, ...extraHeaders],
+      headers: headers,
       maxMessageSize: maxMessageSize,
       checkOrigin: checkOrigin,
     );
@@ -356,8 +384,7 @@ class WebSocketResponse extends ResolvableResponse {
       .secWebSocketAccept(acceptKey),
       if (selectedProtocol != null) .secWebSocketProtocol([selectedProtocol]),
       ?extensionHeader,
-      ...headers,
-    ];
+    ].replacing(headers);
 
     return .upgrade(
       (channel) async {
@@ -393,14 +420,13 @@ class ContentResponse extends ResolvableResponse {
   final DateTime lastModified;
 
   @override
-  ContentResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
-    if (extraHeaders.isEmpty) return this;
+  ContentResponse copyWithHeaders(List<TypedHeader> headers) {
     return ContentResponse(
       read: read,
       size: size,
       name: name,
       lastModified: lastModified,
-      headers: [...headers, ...extraHeaders],
+      headers: headers,
     );
   }
 
@@ -479,14 +505,13 @@ class ContentResponse extends ResolvableResponse {
                 : read(range.start, range.start + range.length),
             status: .partialContent,
             contentLength: range.length,
-            headers: [
-              ...responseHeaders,
+            headers: responseHeaders.replacing([
               .contentRangeBytes(
                 range.start,
                 range.start + range.length - 1,
                 size,
               ),
-            ],
+            ]),
           );
         }
       } on HttpRangeNoOverlapException {
@@ -516,12 +541,8 @@ class FileResponse extends ResolvableResponse {
   final File file;
 
   @override
-  FileResponse withHeaders(Iterable<TypedHeader> extraHeaders) {
-    if (extraHeaders.isEmpty) return this;
-    return FileResponse(
-      file,
-      headers: [...headers, ...extraHeaders],
-    );
+  FileResponse copyWithHeaders(List<TypedHeader> headers) {
+    return FileResponse(file, headers: headers);
   }
 
   @override

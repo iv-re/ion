@@ -23,16 +23,35 @@ void main() {
       check(response.status).equals(HttpStatusCode.ok);
     });
 
+    test('RawJson Content-Type from headers replaces the default', () {
+      final response = RawJson(
+        {'a': 1},
+        headers: [
+          const .contentType('application/problem+json'),
+          const .cacheControl(noStore: true),
+        ],
+      );
+
+      final contentTypes = response.headers.whereType<ContentTypeHeader>();
+      check(contentTypes).length.equals(1);
+      check(contentTypes.single.mediaType).equals('application/problem+json');
+      check(response.headers.whereType<CacheControlHeader>()).length.equals(1);
+    });
+
     test('Json and JsonList accept custom headers', () {
+      // A Content-Type from headers replaces the default one.
       final response1 = Json(
         _ItemDto(title: 'Item A'),
-        headers: [const .contentType('application/json')],
+        headers: [const .contentType('application/json', charset: 'utf-8')],
       );
-      check(response1.headers).length.equals(2);
+      check(response1.headers).length.equals(1);
+      check(
+        response1.headers.single,
+      ).equals(const .contentType('application/json', charset: 'utf-8'));
 
       final response2 = JsonList(
         [_ItemDto(title: 'Item A')],
-        headers: [const .contentType('application/json')],
+        headers: [const .cacheControl(noStore: true)],
       );
       check(response2.headers).length.equals(2);
     });

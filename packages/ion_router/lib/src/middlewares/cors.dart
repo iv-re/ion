@@ -171,10 +171,17 @@ const _prebuiltVaryActual = VaryHeader(['Origin']);
 const _prebuiltAllowOriginAny = AccessControlAllowOriginHeader.any();
 const _prebuiltAllowCredentials = AccessControlAllowCredentialsHeader();
 
-const _defaultActualResponseHeaders = <TypedHeader>[
-  _prebuiltVaryActual,
-  _prebuiltAllowOriginAny,
-];
+const _defaultActualResponseHeaders = <TypedHeader>[_prebuiltAllowOriginAny];
+
+/// Sets the CORS [headers] on [res] and appends [vary]: the handler may have
+/// its own `Vary` (e.g. `Accept-Encoding`), which must not be replaced.
+Response _withCorsHeaders(
+  Response res,
+  List<TypedHeader> headers,
+  VaryHeader vary,
+) {
+  return res.withHeaders(headers).withAppendedHeaders([vary]);
+}
 
 /// Creates a [Middleware] that handles CORS (Cross-Origin Resource Sharing).
 ///
@@ -230,7 +237,7 @@ Middleware corsMiddleware([CorsOptions? options]) {
           }
         }
 
-        final responseHeaders = <TypedHeader>[_prebuiltVaryPreflight];
+        final responseHeaders = <TypedHeader>[];
 
         if (opts._allowedOriginsAll && !opts.allowCredentials) {
           responseHeaders.add(_prebuiltAllowOriginAny);
@@ -262,10 +269,13 @@ Middleware corsMiddleware([CorsOptions? options]) {
 
         if (opts.optionsPassthrough) {
           final res = await next(req);
-          return res.withHeaders(responseHeaders);
+          return _withCorsHeaders(res, responseHeaders, _prebuiltVaryPreflight);
         }
 
-        return .status(.noContent, headers: responseHeaders);
+        return .status(
+          .noContent,
+          headers: [_prebuiltVaryPreflight, ...responseHeaders],
+        );
       }
 
       // Actual request handling
@@ -279,10 +289,14 @@ Middleware corsMiddleware([CorsOptions? options]) {
       if (opts._allowedOriginsAll &&
           !opts.allowCredentials &&
           opts.exposedHeaders.isEmpty) {
-        return res.withHeaders(_defaultActualResponseHeaders);
+        return _withCorsHeaders(
+          res,
+          _defaultActualResponseHeaders,
+          _prebuiltVaryActual,
+        );
       }
 
-      final responseHeaders = <TypedHeader>[_prebuiltVaryActual];
+      final responseHeaders = <TypedHeader>[];
 
       if (opts._allowedOriginsAll && !opts.allowCredentials) {
         responseHeaders.add(_prebuiltAllowOriginAny);
@@ -298,7 +312,7 @@ Middleware corsMiddleware([CorsOptions? options]) {
         responseHeaders.add(exposedHeadersHeader);
       }
 
-      return res.withHeaders(responseHeaders);
+      return _withCorsHeaders(res, responseHeaders, _prebuiltVaryActual);
     };
   };
 }

@@ -378,4 +378,49 @@ void main() {
           .equals('https://example.com');
     });
   });
+
+  group('CORS Middleware - handler Vary', () {
+    Future<List<String>> varyValues(Middleware middleware) async {
+      final app = IonRouter()
+        ..use(middleware)
+        ..get(
+          '/test',
+          (req) => Response.text(
+            'ok',
+            headers: [const VaryHeader(['Accept-Encoding'])],
+          ),
+        );
+      final res = await app(
+        Request(
+          const Stream.empty(),
+          method: .get,
+          uri: Uri.parse('http://localhost/test'),
+          version: .http11,
+          headers: TypedHeaders.fromList([
+            OriginHeader.parts('https', 'example.com'),
+          ]),
+        ),
+      );
+      return [
+        for (final vary in res.headers.whereType<VaryHeader>())
+          ...vary.headers,
+      ];
+    }
+
+    test('keeps the handler Vary with default options', () async {
+      check(
+        await varyValues(Middlewares.cors()),
+      ).deepEquals(['Accept-Encoding', 'Origin']);
+    });
+
+    test('keeps the handler Vary with restricted origins', () async {
+      check(
+        await varyValues(
+          Middlewares.cors(
+            CorsOptions(allowedOrigins: ['https://example.com']),
+          ),
+        ),
+      ).deepEquals(['Accept-Encoding', 'Origin']);
+    });
+  });
 }

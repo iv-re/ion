@@ -312,7 +312,105 @@ void main() {
       );
     });
 
-    test('withHeaders appends extra headers', () {
+    group('withHeaders / withAppendedHeaders', () {
+      List<String> lines(Response res) => [
+        for (final h in res.headers) '${h.name}: ${h.value}',
+      ];
+
+      const base = Response.status(
+        HttpStatusCode.ok,
+        headers: [
+          TestCustomHeader('Vary', 'Accept-Encoding'),
+          TestCustomHeader('Set-Cookie', 'a=1'),
+          TestCustomHeader('X-Keep', 'yes'),
+        ],
+      );
+
+      test('withHeaders replaces headers of the same name', () {
+        final res = base.withHeaders([
+          const TestCustomHeader('vary', 'Origin'),
+          const TestCustomHeader('SET-COOKIE', 'b=2'),
+        ]);
+        expect(lines(res), [
+          'X-Keep: yes',
+          'vary: Origin',
+          'SET-COOKIE: b=2',
+        ]);
+      });
+
+      test('withHeaders keeps every entry it is given for one name', () {
+        final res = base.withHeaders([
+          const TestCustomHeader('WWW-Authenticate', 'Basic'),
+          const TestCustomHeader('WWW-Authenticate', 'Bearer'),
+        ]);
+        expect(lines(res), [
+          'Vary: Accept-Encoding',
+          'Set-Cookie: a=1',
+          'X-Keep: yes',
+          'WWW-Authenticate: Basic',
+          'WWW-Authenticate: Bearer',
+        ]);
+      });
+
+      test('withAppendedHeaders keeps existing headers', () {
+        final res = base.withAppendedHeaders([
+          const TestCustomHeader('Vary', 'Origin'),
+          const TestCustomHeader('Set-Cookie', 'b=2'),
+        ]);
+        expect(lines(res), [
+          'Vary: Accept-Encoding',
+          'Set-Cookie: a=1',
+          'X-Keep: yes',
+          'Vary: Origin',
+          'Set-Cookie: b=2',
+        ]);
+      });
+
+      test('return the same response for no headers', () {
+        expect(base.withHeaders([]), same(base));
+        expect(base.withAppendedHeaders([]), same(base));
+      });
+
+      test('keep the type of resolvable responses', () {
+        final file = Response.file(File('missing.txt'));
+        final websocket = Response.websocket((ws) async {});
+        final content = Response.content(
+          read: (start, end) => const Stream.empty(),
+          size: 0,
+          name: 'a.txt',
+          lastModified: DateTime.utc(2024),
+        );
+        const header = TestCustomHeader('X-A', '1');
+
+        expect(file.withHeaders([header]), isA<FileResponse>());
+        expect(file.withAppendedHeaders([header]), isA<FileResponse>());
+        expect(websocket.withHeaders([header]), isA<WebSocketResponse>());
+        expect(
+          websocket.withAppendedHeaders([header]),
+          isA<WebSocketResponse>(),
+        );
+        expect(content.withHeaders([header]), isA<ContentResponse>());
+        expect(content.withAppendedHeaders([header]), isA<ContentResponse>());
+      });
+
+      test('constructor headers replace the defaults', () {
+        final text = Response.text(
+          '{}',
+          headers: [const ContentTypeHeader.json()],
+        );
+        expect(text.headers.whereType<ContentTypeHeader>(), hasLength(1));
+        expect(text.headers.single, isA<ContentTypeHeader>());
+
+        final sse = Response.sse(
+          () => const Stream.empty(),
+          headers: [const CacheControlHeader(noStore: true)],
+        );
+        expect(sse.headers.whereType<CacheControlHeader>(), hasLength(1));
+        expect(sse.headers.whereType<ContentTypeHeader>(), hasLength(1));
+      });
+    });
+
+    test('withHeaders adds a header to an empty response', () {
       const initial = Response.status(HttpStatusCode.ok);
       expect(initial.withHeaders([]), same(initial));
 
@@ -333,7 +431,7 @@ void main() {
       expect(updated.body, equals(newBody));
     });
 
-    test('WebSocketResponse.withHeaders appends extra headers', () {
+    test('WebSocketResponse.withHeaders adds extra headers', () {
       final initial = Response.websocket((ws) async {});
       expect(initial.withHeaders([]), same(initial));
 

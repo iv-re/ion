@@ -440,6 +440,25 @@ extension TypedHeaderListExtension on List<TypedHeader> {
       add(header);
     }
   }
+
+  /// Returns a new list where [other] replaces the headers of the same
+  /// names, compared case-insensitively. Several entries with one name in
+  /// [other] are all kept.
+  ///
+  /// For defaults that a caller may override:
+  /// `[defaultContentType].replacing(userHeaders)`.
+  List<TypedHeader> replacing(Iterable<TypedHeader> other) {
+    final replacements = other.toList(growable: false);
+    if (replacements.isEmpty) return this;
+    bool isReplaced(TypedHeader header) => replacements.any(
+      (r) => r.name.equalsIgnoreAsciiCase(header.name),
+    );
+    return [
+      for (final header in this)
+        if (!isReplaced(header)) header,
+      ...replacements,
+    ];
+  }
 }
 
 mixin _FramingHeaders {

@@ -188,32 +188,32 @@ void main() {
       },
     );
 
-    test(
-      'deduplicates headers case-insensitively keeping the last value',
-      () async {
-        const response = Response.status(
-          HttpStatusCode.ok,
-          headers: [
-            TypedHeader.contentTypeText(),
-            TestCustomHeader('X-Custom-Header', 'first'),
-            TypedHeader.contentTypeJson(),
-            TestCustomHeader('X-CUSTOM-HEADER', 'second'),
-          ],
-        );
+    test('writes repeated header names as given', () async {
+      const response = Response.status(
+        HttpStatusCode.unauthorized,
+        headers: [
+          TestCustomHeader('WWW-Authenticate', 'Basic realm="a"'),
+          TestCustomHeader('Vary', 'Accept-Encoding'),
+          TestCustomHeader('WWW-Authenticate', 'Bearer'),
+          TestCustomHeader('vary', 'Origin'),
+        ],
+      );
 
-        await writeResponse(socket, request, response);
+      await writeResponse(socket, request, response);
 
-        final raw = getCapturedSocketString(socket);
+      final raw = getCapturedSocketString(socket);
+      expect(
+        raw,
+        contains(
+          'WWW-Authenticate: Basic realm="a"\r\n'
+          'Vary: Accept-Encoding\r\n'
+          'WWW-Authenticate: Bearer\r\n'
+          'vary: Origin\r\n',
+        ),
+      );
+    });
 
-        expect(raw, contains('Content-Type: application/json\r\n'));
-        expect(raw, isNot(contains('Content-Type: text/plain\r\n')));
-
-        expect(raw, contains('X-CUSTOM-HEADER: second\r\n'));
-        expect(raw, isNot(contains('X-Custom-Header: first\r\n')));
-      },
-    );
-
-    test('allows multiple Set-Cookie headers without deduplicating', () async {
+    test('writes multiple Set-Cookie headers', () async {
       final response = Response.status(
         HttpStatusCode.ok,
         headers: [

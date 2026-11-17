@@ -53,6 +53,9 @@ abstract final class HttpResponseWriter {
   /// Writes status line, headers, and body to [socket] and returns
   /// [ResponseWriteResult] with bytes written and effective keepAlive flag.
   ///
+  /// [headers] are written in order and as given: repeated names are all
+  /// sent (see [Response.withHeaders] and [Response.withAppendedHeaders]).
+  ///
   /// Message framing is owned by the writer: `Content-Length`,
   /// `Transfer-Encoding` and `Connection` entries in [headers] are not
   /// written as is. They are derived from [body], [status], [version] and
@@ -107,8 +110,6 @@ abstract final class HttpResponseWriter {
     }
 
     for (var i = 0; i < headers.length; i++) {
-      if (headers._isDuplicateAt(i)) continue;
-
       final header = headers[i];
       final key = header.name;
 
@@ -188,7 +189,6 @@ abstract final class HttpResponseWriter {
     buf.addBytes(_statusLine(101));
 
     for (var i = 0; i < headers.length; i++) {
-      if (headers._isDuplicateAt(i)) continue;
       final header = headers[i];
       buf.addHeader(header.name, header.value);
     }
@@ -246,22 +246,6 @@ extension _HttpHeaderWriterBuffer on ByteWriter {
     buf[p++] = 0x0A; // '\n'
 
     pos = p;
-  }
-}
-
-extension on List<TypedHeader> {
-  bool _isDuplicateAt(int currentIndex) {
-    final key = this[currentIndex].name;
-    if (key.length == 10 && key.equalsIgnoreAsciiCase('set-cookie')) {
-      return false;
-    }
-    for (var j = currentIndex + 1; j < length; j++) {
-      final nextKey = this[j].name;
-      if (nextKey.length == key.length && nextKey.equalsIgnoreAsciiCase(key)) {
-        return true;
-      }
-    }
-    return false;
   }
 }
 
