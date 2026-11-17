@@ -19,13 +19,22 @@ class BodyControllerException implements Exception {
   final String message;
 }
 
-const int _maxUnreadBufferBytes = 256 * 1024;
+/// How many bytes of a body nobody listens to yet are buffered before the
+/// socket is paused. The buffer may exceed this by at most one socket chunk.
+const int maxUnreadBufferBytes = 256 * 1024;
 
 /// A common interface for body controllers.
 abstract interface class BodyController {
   Stream<Uint8List> get stream;
   bool get isDone;
   bool get hasListener;
+
+  /// Whether the source is paused because [maxUnreadBufferBytes] of body
+  /// were buffered without a listener.
+  bool get isPausedUnread;
+
+  /// Whether the body is known to not fit into the unread buffer.
+  bool get exceedsUnreadBuffer;
   Uint8List add(Uint8List data);
   void close();
   void addError(Object error);
@@ -33,13 +42,21 @@ abstract interface class BodyController {
 }
 
 /// Base class for body controllers providing stream buffering and lifecycle.
+///
+/// Until the body stream gets a listener, chunks are buffered. Once
+/// [maxUnreadBufferBytes] are buffered, the source is paused via `onPause`
+/// and resumed when a listener arrives. `onUnreadLimit` is called when that
+/// pause happens. After the listener cancels its subscription, remaining
+/// body bytes are consumed and dropped, so the source keeps flowing.
 abstract base class _BaseBodyController implements BodyController {
   _BaseBodyController({
     required this._onDone,
     void Function()? onPause,
     void Function()? onResume,
     void Function()? onListen,
-  }) {
+    this._onUnreadLimit,
+  }) : _pauseSource = onPause,
+       _resumeSource = onResume {
     _controller = StreamController<Uint8List>(
       sync: true,
       onListen: () {
@@ -55,25 +72,50 @@ abstract base class _BaseBodyController implements BodyController {
         if (_isClosed && !_controller.isClosed) {
           _controller.close();
         }
+        _resumeUnread();
       },
-      onPause: onPause,
-      onResume: onResume,
+      onPause: () {
+        if (_isListenerPaused) return;
+        _isListenerPaused = true;
+        _pauseSource?.call();
+      },
+      onResume: () {
+        if (!_isListenerPaused) return;
+        _isListenerPaused = false;
+        _resumeSource?.call();
+      },
+      onCancel: () {
+        _isDiscarding = true;
+        if (_isListenerPaused) {
+          _isListenerPaused = false;
+          _resumeSource?.call();
+        }
+      },
     );
   }
 
   late final StreamController<Uint8List> _controller;
   final void Function() _onDone;
+  final void Function()? _pauseSource;
+  final void Function()? _resumeSource;
+  final void Function()? _onUnreadLimit;
 
   final _bufferedChunks = <Uint8List>[];
   int _bufferedLength = 0;
   bool _hasListener = false;
   bool _isClosed = false;
+  bool _isPausedUnread = false;
+  bool _isListenerPaused = false;
+  bool _isDiscarding = false;
 
   @override
   Stream<Uint8List> get stream => _controller.stream;
 
   @override
   bool get hasListener => _hasListener;
+
+  @override
+  bool get isPausedUnread => _isPausedUnread;
 
   @override
   Uint8List takeBufferedData() {
@@ -86,19 +128,31 @@ abstract base class _BaseBodyController implements BodyController {
     }
     _bufferedChunks.clear();
     _bufferedLength = 0;
+    _resumeUnread();
     return result;
   }
 
+  void _resumeUnread() {
+    if (_isPausedUnread) {
+      _isPausedUnread = false;
+      _resumeSource?.call();
+    }
+  }
+
   void _addChunk(Uint8List chunk) {
+    if (_isDiscarding || chunk.isEmpty) return;
     if (_hasListener) {
       if (!_controller.isClosed) {
         _controller.add(chunk);
       }
-    } else {
-      if (_bufferedLength + chunk.length <= _maxUnreadBufferBytes) {
-        _bufferedChunks.add(chunk);
-        _bufferedLength += chunk.length;
-      }
+      return;
+    }
+    _bufferedChunks.add(chunk);
+    _bufferedLength += chunk.length;
+    if (_bufferedLength >= maxUnreadBufferBytes && !_isPausedUnread) {
+      _isPausedUnread = true;
+      _pauseSource?.call();
+      _onUnreadLimit?.call();
     }
   }
 
@@ -128,6 +182,7 @@ final class FixedLengthBodyController extends _BaseBodyController {
     super.onPause,
     super.onResume,
     super.onListen,
+    super.onUnreadLimit,
   });
 
   final int _contentLength;
@@ -135,6 +190,11 @@ final class FixedLengthBodyController extends _BaseBodyController {
 
   @override
   bool get isDone => _consumed >= _contentLength;
+
+  @override
+  bool get exceedsUnreadBuffer =>
+      !_hasListener &&
+      _bufferedLength + (_contentLength - _consumed) > maxUnreadBufferBytes;
 
   /// Adds [data] to the body stream.
   ///
@@ -197,6 +257,7 @@ final class ChunkedBodyController extends _BaseBodyController {
     super.onPause,
     super.onResume,
     super.onListen,
+    super.onUnreadLimit,
   });
 
   static const _maxLineBytes = 4096;
@@ -214,6 +275,10 @@ final class ChunkedBodyController extends _BaseBodyController {
 
   @override
   bool get isDone => _isDone;
+
+  /// The total length of a chunked body is unknown up front.
+  @override
+  bool get exceedsUnreadBuffer => false;
 
   @override
   Uint8List add(Uint8List data) {

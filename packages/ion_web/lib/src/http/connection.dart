@@ -22,6 +22,15 @@ final _continueResponseBytes = Uint8List.fromList(
 /// roughly this value plus one response.
 const int _flushThreshold = 256 * 1024;
 
+/// How long the server waits for an unread request body to arrive after the
+/// handler responded, before giving up on keep-alive.
+const Duration _maxUnreadBodyWait = Duration(seconds: 5);
+
+/// How long the server keeps reading (and dropping) incoming data after
+/// closing its write side with request body bytes still in flight, so the
+/// client receives the response instead of a TCP reset.
+const Duration _lingerTimeout = Duration(seconds: 2);
+
 Uri _buildEffectiveUri(
   Uri requestUri,
   TypedHeaders headers, {
@@ -113,13 +122,18 @@ class HttpConnection {
   var _responseSent = false;
   var _unflushedBytes = 0;
   var _canSend100Continue = false;
+  var _isLingering = false;
+  Timer? _lingerTimer;
+  Completer<bool>? _unreadBodyWait;
 
   void start() {
     _startIdleTimer();
     _subscription = socket.listen(
       _onData,
       onDone: () {
-        if (_upgradeController != null) {
+        if (_isLingering) {
+          _destroy();
+        } else if (_upgradeController != null) {
           _upgradeController?.close();
         } else {
           _clientClosed = true;
@@ -180,7 +194,18 @@ class HttpConnection {
   void _startBodyTimer() {
     if (_readBodyTimeout != null && !_isDestroyed && !_clientClosed) {
       _bodyTimer?.cancel();
-      _bodyTimer = Timer(_readBodyTimeout, _destroy);
+      _bodyTimer = Timer(_readBodyTimeout, _onBodyTimeout);
+    }
+  }
+
+  void _onBodyTimeout() {
+    final wait = _unreadBodyWait;
+    if (wait != null && !wait.isCompleted) {
+      // The handler already responded; send the response with
+      // `Connection: close` instead of dropping it.
+      wait.complete(false);
+    } else {
+      _destroy();
     }
   }
 
@@ -209,6 +234,63 @@ class HttpConnection {
       ),
       onError: (Object _) => _destroy(),
     );
+  }
+
+  /// Decides, before the response is written, whether the connection can stay
+  /// alive given a request body the handler did not finish reading.
+  ///
+  /// A body the handler never listened to is read to the end and dropped if
+  /// it fits into the unread buffer. Otherwise keep-alive is not possible,
+  /// because the rest of the body would have to be read from the socket.
+  Future<bool> _settleUnreadBody(
+    Completer<void> bodyDone,
+    Completer<void> unreadLimit,
+  ) async {
+    final controller = _bodyController;
+    // A listener that is still reading is awaited after the response is
+    // written: the response body may depend on the request body.
+    if (bodyDone.isCompleted || controller == null || controller.hasListener) {
+      return true;
+    }
+    if (_canSend100Continue) {
+      // The client waits for 100 Continue before sending the body.
+      _canSend100Continue = false;
+      return false;
+    }
+    if (controller.isPausedUnread || controller.exceedsUnreadBuffer) {
+      return false;
+    }
+
+    final wait = _unreadBodyWait = Completer<bool>();
+    void complete(bool canKeepAlive) {
+      if (!wait.isCompleted) wait.complete(canKeepAlive);
+    }
+
+    unawaited(bodyDone.future.then((_) => complete(!_forceClose)));
+    unawaited(unreadLimit.future.then((_) => complete(false)));
+    final timer = Timer(_maxUnreadBodyWait, () => complete(false));
+    try {
+      return await wait.future;
+    } finally {
+      timer.cancel();
+      _unreadBodyWait = null;
+    }
+  }
+
+  /// Closes the write side and keeps dropping incoming data for a while, so
+  /// unread request bytes do not make the OS reset the connection before the
+  /// client has read the response.
+  Future<void> _lingeringClose() async {
+    _isLingering = true;
+    _cancelBodyTimer();
+    _lingerTimer = Timer(_lingerTimeout, _destroy);
+    // The subscription may be paused several times over (unread body
+    // buffer, a paused body listener); undo all of them.
+    final subscription = _subscription;
+    for (var i = 0; i < 8 && (subscription?.isPaused ?? false); i++) {
+      subscription!.resume();
+    }
+    await socket.close();
   }
 
   void shutdown() {
@@ -247,6 +329,7 @@ class HttpConnection {
   }
 
   Future<void> _onData(Uint8List data) async {
+    if (_isLingering) return;
     if (_upgradeController != null) {
       _upgradeController?.add(data);
       return;
@@ -294,6 +377,10 @@ class HttpConnection {
         _cancelHeaderTimer();
         _readyForNextRequest = Completer<void>();
         final bodyDone = Completer<void>();
+        final unreadLimit = Completer<void>();
+        void onUnreadLimit() {
+          if (!unreadLimit.isCompleted) unreadLimit.complete();
+        }
 
         final consumedInHeaders = requestHead.consumedBytesInLastChunk;
         final remainingInChunk = consumedInHeaders == currentData.length
@@ -403,6 +490,7 @@ class HttpConnection {
             onPause: () => _subscription?.pause(),
             onResume: () => _subscription?.resume(),
             onListen: _canSend100Continue ? _send100Continue : null,
+            onUnreadLimit: onUnreadLimit,
           );
           requestBody = _bodyController!.stream;
           currentData = _bodyController!.add(remainingInChunk);
@@ -415,6 +503,7 @@ class HttpConnection {
             onPause: () => _subscription?.pause(),
             onResume: () => _subscription?.resume(),
             onListen: _canSend100Continue ? _send100Continue : null,
+            onUnreadLimit: onUnreadLimit,
           );
           requestBody = _bodyController!.stream;
           currentData = _bodyController!.add(remainingInChunk);
@@ -464,6 +553,12 @@ class HttpConnection {
             response = resResult is Response ? resResult : await resResult;
           }
 
+          var keepAlive = request.keepAlive && !_forceClose && !_isShuttingDown;
+          if (keepAlive && response.onUpgrade == null) {
+            keepAlive = await _settleUnreadBody(bodyDone, unreadLimit);
+            if (_isDestroyed) return;
+          }
+
           _startWriteTimer();
           try {
             if (response.onUpgrade case final onUpgrade?) {
@@ -495,31 +590,40 @@ class HttpConnection {
             final writeResult = HttpResponseWriter.write(
               socket,
               method: request.method,
-              keepAlive: request.keepAlive && !_forceClose && !_isShuttingDown,
+              keepAlive: keepAlive,
               status: response.status.value,
               headers: response.headers,
               body: response.body,
             );
-            final (bytesWritten, keepAlive) = writeResult is ResponseWriteResult
+            final (
+              bytesWritten,
+              wroteKeepAlive,
+            ) = writeResult is ResponseWriteResult
                 ? writeResult
                 : await writeResult;
 
             _responseSent = true;
             _unflushedBytes += bytesWritten;
 
-            if (!keepAlive) {
-              await socket.close();
-              _destroy();
+            if (!wroteKeepAlive) {
+              if (bodyDone.isCompleted) {
+                await socket.close();
+                _destroy();
+              } else {
+                await _lingeringClose();
+              }
               return;
             }
 
             _parser.reset();
             if (!bodyDone.isCompleted) {
-              if (_bodyController != null && !_bodyController!.hasListener) {
-                _forceClose = true;
-              } else {
-                await bodyDone.future;
-              }
+              // _settleUnreadBody only keeps the connection alive with an
+              // unfinished body when the handler is reading it.
+              assert(
+                _bodyController == null || _bodyController!.hasListener,
+                'keep-alive promised with an unread request body',
+              );
+              await bodyDone.future;
             }
             if (_isShuttingDown || _forceClose || _clientClosed) {
               await socket.close();
@@ -614,6 +718,8 @@ class HttpConnection {
     _cancelHeaderTimer();
     _cancelBodyTimer();
     _cancelWriteTimer();
+    _lingerTimer?.cancel();
+    _lingerTimer = null;
     _currentRequestCancel?.call();
     _subscription?.cancel();
     socket.destroy();
