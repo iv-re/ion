@@ -715,6 +715,96 @@ void main() {
       },
     );
   });
+
+  group('flow control and connection lifetime', () {
+    late StreamController<List<int>> input;
+    late StreamController<List<int>> output;
+    late StreamWebSocketChannel ws;
+
+    setUp(() {
+      input = StreamController<List<int>>();
+      output = StreamController<List<int>>();
+      output.stream.listen((_) {});
+      ws = StreamWebSocketChannel(StreamChannel(input.stream, output.sink));
+    });
+
+    Uint8List binary(int size) =>
+        _buildFrame(opcode: WebSocketOpcode.binary, payload: Uint8List(size));
+
+    test('a paused listener pauses the input', () async {
+      final subscription = ws.stream.listen((_) {});
+      await pumpEventQueue();
+      expect(input.isPaused, isFalse);
+
+      subscription.pause();
+      expect(input.isPaused, isTrue);
+
+      subscription.resume();
+      expect(input.isPaused, isFalse);
+      await subscription.cancel();
+    });
+
+    test('without a listener, input pauses after 1 MiB of messages', () async {
+      input.add(binary(600 * 1024));
+      await pumpEventQueue();
+      expect(input.isPaused, isFalse);
+
+      input.add(binary(600 * 1024));
+      await pumpEventQueue();
+      expect(input.isPaused, isTrue);
+
+      final received = <Object?>[];
+      ws.stream.listen(received.add);
+      await pumpEventQueue();
+      expect(received, hasLength(2));
+      expect(input.isPaused, isFalse);
+    });
+
+    test('a cancelled listener keeps the input flowing', () async {
+      final subscription = ws.stream.listen((_) {})..pause();
+      expect(input.isPaused, isTrue);
+      await subscription.cancel();
+      expect(input.isPaused, isFalse);
+    });
+
+    test('the peer closing the handshake closes the output', () async {
+      ws.stream.listen((_) {});
+      input.add(
+        _buildFrame(opcode: WebSocketOpcode.close, payload: [0x03, 0xE8]),
+      );
+      await pumpEventQueue();
+      expect(output.isClosed, isTrue);
+      expect(ws.closeCode, 1000);
+    });
+
+    test('sink.close waits for the peer, then closes the output', () async {
+      unawaited(ws.sink.close(1000));
+      await pumpEventQueue();
+      expect(output.isClosed, isFalse);
+
+      input.add(
+        _buildFrame(opcode: WebSocketOpcode.close, payload: [0x03, 0xE8]),
+      );
+      await pumpEventQueue();
+      expect(output.isClosed, isTrue);
+    });
+
+    test('the input ending closes the output', () async {
+      ws.stream.listen((_) {});
+      await input.close();
+      await pumpEventQueue();
+      expect(output.isClosed, isTrue);
+      expect(ws.closeCode, 1006);
+    });
+
+    test('a protocol error closes the output', () async {
+      ws.stream.listen((_) {}, onError: (Object _) {});
+      input.add(_buildFrame(opcode: WebSocketOpcode.text, masked: false));
+      await pumpEventQueue();
+      expect(output.isClosed, isTrue);
+      expect(ws.closeCode, 1002);
+    });
+  });
 }
 
 Uint8List _buildFrame({

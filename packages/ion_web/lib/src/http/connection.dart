@@ -163,8 +163,11 @@ class HttpConnection {
         }
       },
       onError: (Object error) {
-        if (_upgradeController != null) {
-          _upgradeController?.addError(error);
+        if (_upgradeController case final upgraded?) {
+          // cancelOnError: there will be no onDone.
+          upgraded
+            ..addError(error)
+            ..close();
         } else {
           _currentRequestCancel?.call();
           _destroy();
@@ -604,7 +607,18 @@ class HttpConnection {
               _cancelBodyTimer();
               _cancelWriteTimer();
               await socket.flush();
-              _upgradeController = StreamController<Uint8List>(sync: true);
+              // A paused reader pauses the socket. The connection lives until
+              // the upgraded side closes the socket (or [destroy]).
+              _upgradeController = StreamController<Uint8List>(
+                sync: true,
+                onPause: () => _subscription?.pause(),
+                onResume: () => _subscription?.resume(),
+              );
+              unawaited(
+                socket.done
+                    .then<void>((_) {}, onError: (Object _) {})
+                    .whenComplete(_destroy),
+              );
               if (currentData.isNotEmpty) {
                 _upgradeController!.add(currentData);
               }

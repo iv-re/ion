@@ -45,19 +45,63 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
     this.deflateOptions = WebSocketDeflateOptions.none,
     this.maxMessageSize,
   }) : _outputSink = channel.sink {
+    _incoming = StreamController<Object?>(
+      sync: true,
+      onListen: _resumeUnlistened,
+      onPause: () {
+        _isPausedByReader = true;
+        _inputSubscription.pause();
+      },
+      onResume: () {
+        _isPausedByReader = false;
+        _inputSubscription.resume();
+      },
+      onCancel: _discardIncoming,
+    );
     _sink = _StreamWebSocketSink(this);
+    // Reading follows [stream]'s listener: a paused listener pauses the
+    // input, so a peer cannot fill memory faster than the handler consumes.
     _inputSubscription = channel.stream.listen(
       _onBytesReceived,
       onError: (Object error, StackTrace stackTrace) {
-        _controller.local.sink.addError(error, stackTrace);
+        if (!_incoming.isClosed) _incoming.addError(error, stackTrace);
       },
       onDone: _onInputDone,
     );
   }
 
+  /// How long to wait for the peer's close frame after sending ours.
+  static const _closeTimeout = Duration(seconds: 5);
+
+  /// Outgoing bytes after which sending waits for the socket to drain.
+  static const int _flushThreshold = 64 * 1024;
+
+  /// Message bytes kept for a [stream] nobody listens to yet; past this the
+  /// input is paused until a listener comes.
+  static const int _maxUnlistenedBytes = 1024 * 1024;
+
   final StreamSink<List<int>> _outputSink;
   late final StreamSubscription<List<int>> _inputSubscription;
+  late final StreamController<Object?> _incoming;
   late final _StreamWebSocketSink _sink;
+
+  int _unlistenedBytes = 0;
+
+  /// The input is paused: [_maxUnlistenedBytes] reached without a listener.
+  bool _isPausedUnlistened = false;
+
+  /// [stream]'s listener is paused, and so is the input.
+  bool _isPausedByReader = false;
+
+  /// Data messages are dropped: nobody will read them.
+  bool _isDiscarding = false;
+  bool _isOutputClosed = false;
+  Timer? _closeTimer;
+  int _unflushedBytes = 0;
+
+  /// The output is flushing; see [_write].
+  Future<void>? _flushing;
+  final List<List<int>> _queuedWrites = [];
 
   @override
   final String? protocol;
@@ -67,11 +111,6 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
   RawZLibFilter? _inflater;
   RawZLibFilter? _deflater;
   bool _isCurrentMessageCompressed = false;
-
-  final _controller = StreamChannelController<Object?>(
-    sync: true,
-    allowForeignErrors: false,
-  );
 
   final _Uint8Buffer _buffer = _Uint8Buffer();
   int _readOffset = 0;
@@ -100,10 +139,27 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
   Future<void> get ready => _readyCompleter.future;
 
   @override
-  Stream<Object?> get stream => _controller.foreign.stream;
+  Stream<Object?> get stream => _incoming.stream;
 
   @override
   WebSocketSink get sink => _sink;
+
+  void _resumeUnlistened() {
+    if (!_isPausedUnlistened) return;
+    _isPausedUnlistened = false;
+    _inputSubscription.resume();
+  }
+
+  /// Keeps reading (for control frames and the peer's close) without
+  /// delivering data messages.
+  void _discardIncoming() {
+    _isDiscarding = true;
+    if (_isPausedByReader) {
+      _isPausedByReader = false;
+      _inputSubscription.resume();
+    }
+    _resumeUnlistened();
+  }
 
   void _onBytesReceived(List<int> chunk) {
     _buffer.addAll(chunk);
@@ -378,8 +434,10 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
         _closeCode = code ?? 1005;
         _closeReason = reason;
         _sendCloseFrame(code, reason);
-        _controller.local.sink.close();
+        _incoming.close();
         _inputSubscription.cancel();
+        // Handshake complete; the server closes TCP first (RFC 6455 §7.1.1).
+        _closeOutput();
       case WebSocketOpcode.ping:
         _sendFrame(WebSocketOpcode.pong, payload);
       case WebSocketOpcode.pong:
@@ -447,14 +505,27 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
 
   void _dispatchMessage(int opcode, Uint8List payload) {
     if (opcode == WebSocketOpcode.text) {
+      final String text;
       try {
-        final text = utf8.decode(payload);
-        _controller.local.sink.add(text);
-      } catch (e) {
+        text = utf8.decode(payload);
+      } on FormatException {
         _closeWithError(1007, 'Invalid UTF-8 payload');
+        return;
       }
+      _deliver(text, payload.length);
     } else {
-      _controller.local.sink.add(payload);
+      _deliver(payload, payload.length);
+    }
+  }
+
+  void _deliver(Object message, int size) {
+    if (_isDiscarding) return;
+    _incoming.add(message);
+    if (_incoming.hasListener || _isPausedUnlistened) return;
+    _unlistenedBytes += size;
+    if (_unlistenedBytes >= _maxUnlistenedBytes) {
+      _isPausedUnlistened = true;
+      _inputSubscription.pause();
     }
   }
 
@@ -484,10 +555,12 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
       headerLen = 10;
     }
 
-    _outputSink.add(_headerScratch.sublist(0, headerLen));
+    if (_isOutputClosed) return;
+    _write(_headerScratch.sublist(0, headerLen));
     if (len > 0) {
-      _outputSink.add(payload);
+      _write(payload);
     }
+    _unflushedBytes += headerLen + len;
   }
 
   void _sendCloseFrame([int? code, String? reason]) {
@@ -518,14 +591,67 @@ class StreamWebSocketChannel extends StreamChannelMixin<Object?>
     _closeCode = code;
     _closeReason = reason;
     _sendCloseFrame(code, reason);
-    _controller.local.sink.addError(WebSocketChannelException(reason));
-    _controller.local.sink.close();
+    if (!_incoming.isClosed) {
+      _incoming
+        ..addError(WebSocketChannelException(reason))
+        ..close();
+    }
     _inputSubscription.cancel();
+    _closeOutput();
   }
 
   void _onInputDone() {
     _closeCode ??= 1006;
-    _controller.local.sink.close();
+    _incoming.close();
+    _closeOutput();
+  }
+
+  /// Called when the sink is closed and our close frame is sent: waits for
+  /// the peer's close frame, then closes the connection.
+  void _onSinkClosed() {
+    if (_isOutputClosed) return;
+    if (!_incoming.hasListener) _discardIncoming();
+    _closeTimer = Timer(_closeTimeout, _closeOutput);
+  }
+
+  /// Closes the underlying connection.
+  void _closeOutput() {
+    if (_isOutputClosed) return;
+    _isOutputClosed = true;
+    _closeTimer?.cancel();
+    // An IOSink cannot be closed while flushing; that is done after it.
+    if (_flushing == null) _outputSink.close().ignore();
+  }
+
+  /// Waits for the output to drain once enough bytes are queued.
+  Future<void>? _drainIfNeeded() {
+    if (_unflushedBytes < _flushThreshold) return null;
+    _unflushedBytes = 0;
+    final output = _outputSink;
+    if (output is! IOSink || _isOutputClosed) return null;
+    return _flushing = output
+        .flush()
+        .then<void>((_) {}, onError: (Object _) {})
+        .whenComplete(() {
+          _flushing = null;
+          try {
+            _queuedWrites.forEach(output.add);
+          } on Object {
+            // The connection is gone.
+          }
+          _queuedWrites.clear();
+          if (_isOutputClosed) output.close().ignore();
+        });
+  }
+
+  /// Writes [bytes], or queues them while an IOSink is flushing: it does not
+  /// accept data meanwhile (control frames are sent during a flush).
+  void _write(List<int> bytes) {
+    if (_flushing != null) {
+      _queuedWrites.add(bytes);
+    } else {
+      _outputSink.add(bytes);
+    }
   }
 
   void _sendMessage(Object? message) {
@@ -562,42 +688,61 @@ typedef RawWebSocketChannel = StreamWebSocketChannel;
 
 class _StreamWebSocketSink implements WebSocketSink {
   _StreamWebSocketSink(this._channel) {
-    _channel._controller.local.stream.listen(
-      _channel._sendMessage,
-      onDone: () {
-        _channel._sendCloseFrame(
-          _channel._localCloseCode,
-          _channel._localCloseReason,
-        );
+    _done.future.ignore();
+    late final StreamSubscription<Object?> subscription;
+    subscription = _outgoing.stream.listen(
+      (message) {
+        _channel._sendMessage(message);
+        // Pausing the controller also pauses a stream given to [addStream].
+        if (_channel._drainIfNeeded() case final drained?) {
+          subscription.pause(drained);
+        }
       },
+      onError: (Object error, StackTrace stackTrace) {
+        subscription.cancel();
+        _finish(error, stackTrace);
+      },
+      onDone: _finish,
     );
   }
 
   final StreamWebSocketChannel _channel;
+  final _outgoing = StreamController<Object?>(sync: true);
+  final _done = Completer<void>();
 
-  @override
-  void add(dynamic data) {
-    _channel._controller.foreign.sink.add(data);
+  /// Sends the close frame and completes [done], with [error] if given.
+  void _finish([Object? error, StackTrace? stackTrace]) {
+    if (_done.isCompleted) return;
+    _channel
+      .._sendCloseFrame(_channel._localCloseCode, _channel._localCloseReason)
+      .._onSinkClosed();
+    if (error != null) {
+      _done.completeError(error, stackTrace);
+    } else {
+      _done.complete();
+    }
   }
 
   @override
-  void addError(Object error, [StackTrace? stackTrace]) {
-    _channel._controller.foreign.sink.addError(error, stackTrace);
-  }
+  void add(dynamic data) => _outgoing.add(data);
 
   @override
-  Future<dynamic> addStream(Stream<dynamic> stream) {
-    return _channel._controller.foreign.sink.addStream(stream);
-  }
+  void addError(Object error, [StackTrace? stackTrace]) =>
+      _outgoing.addError(error, stackTrace);
 
   @override
-  Future<dynamic> get done => _channel._controller.foreign.sink.done;
+  Future<dynamic> addStream(Stream<dynamic> stream) =>
+      _outgoing.addStream(stream);
+
+  @override
+  Future<dynamic> get done => _done.future;
 
   @override
   Future<dynamic> close([int? closeCode, String? closeReason]) {
     _channel._localCloseCode = closeCode;
     _channel._localCloseReason = closeReason;
-    return _channel._controller.foreign.sink.close();
+    if (!_outgoing.isClosed) _outgoing.close().ignore();
+    return _done.future;
   }
 }
 
