@@ -115,6 +115,12 @@ class HttpConnection {
   final _doneCompleter = Completer<void>();
   Future<void> get done => _doneCompleter.future;
 
+  final _httpDoneCompleter = Completer<void>();
+
+  /// Completes when the connection stops serving HTTP: it is closed, or it
+  /// was upgraded and now belongs to the upgrade handler.
+  Future<void> get httpDone => _httpDoneCompleter.future;
+
   var _isShuttingDown = false;
   var _forceClose = false;
   bool get _isDestroyed => _state == .closed;
@@ -322,6 +328,9 @@ class HttpConnection {
     }
     await socket.close();
   }
+
+  /// The connection was upgraded (WebSocket) and no longer serves HTTP.
+  bool get isUpgraded => _state == .upgraded;
 
   /// Closes the connection immediately, aborting any request in progress.
   void destroy() => _destroy();
@@ -602,6 +611,9 @@ class HttpConnection {
               _unflushedBytes += headBytes;
 
               _state = .upgraded;
+              if (!_httpDoneCompleter.isCompleted) {
+                _httpDoneCompleter.complete();
+              }
               _cancelIdleTimer();
               _cancelHeaderTimer();
               _cancelBodyTimer();
@@ -789,6 +801,9 @@ class HttpConnection {
     _upgradeController?.close();
     if (!_readyForNextRequest.isCompleted) {
       _readyForNextRequest.complete();
+    }
+    if (!_httpDoneCompleter.isCompleted) {
+      _httpDoneCompleter.complete();
     }
     if (!_doneCompleter.isCompleted) {
       _doneCompleter.complete();

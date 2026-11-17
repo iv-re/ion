@@ -250,6 +250,55 @@ void main() {
       await server.shutdown().timeout(const Duration(seconds: 5));
     });
 
+    test('shutdown() leaves open sessions alone; close() ends them', () async {
+      await serve(
+        (request) => Response.websocket((channel) {
+          channel.stream.listen(channel.sink.add);
+        }),
+      );
+      final ws = await WebSocket.connect('ws://localhost:${server.port}/ws');
+      final messages = StreamIterator(ws);
+
+      await server.shutdown().timeout(const Duration(seconds: 2));
+
+      ws.add('still here');
+      expect(await messages.moveNext(), isTrue);
+      expect(messages.current, 'still here');
+
+      await server.close();
+      expect(
+        await messages.moveNext().timeout(const Duration(seconds: 2)),
+        isFalse,
+      );
+    });
+
+    test('shutdown(timeout) does not destroy open sessions', () async {
+      await serve(
+        (request) => request.isWebSocketUpgrade
+            ? Response.websocket((channel) {
+                channel.stream.listen(channel.sink.add);
+              })
+            : Response.stream(StreamController<Uint8List>().stream),
+      );
+      final ws = await WebSocket.connect('ws://localhost:${server.port}/ws');
+      final messages = StreamIterator(ws);
+      // An HTTP response that never ends keeps shutdown() waiting.
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final hanging = await (await client.get(
+        'localhost',
+        server.port,
+        '/',
+      )).close();
+      hanging.listen((_) {}, onError: (Object _) {});
+
+      await server.shutdown(timeout: const Duration(milliseconds: 200));
+
+      ws.add('still here');
+      expect(await messages.moveNext(), isTrue);
+      await ws.close();
+    });
+
     test('a paused reader stops reading the socket', () async {
       final firstMessage = Completer<void>();
       await serve(

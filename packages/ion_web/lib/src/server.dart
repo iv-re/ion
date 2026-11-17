@@ -128,6 +128,9 @@ class IonServer {
   /// Stops accepting connections, lets in-flight requests finish and closes
   /// idle connections. After [timeout], remaining connections are destroyed.
   ///
+  /// Upgraded connections (WebSocket) are neither waited for nor closed, as
+  /// in Go: close them from the application, or call [close].
+  ///
   /// [close] may be called meanwhile to destroy them right away.
   Future<void> shutdown({Duration? timeout}) async {
     if (_isClosing) return;
@@ -137,7 +140,7 @@ class IonServer {
       connection.shutdown();
     }
 
-    final allClosed = Future.wait([for (final c in _connections) c.done]);
+    final allClosed = Future.wait([for (final c in _connections) c.httpDone]);
     if (timeout == null) {
       await allClosed;
       return;
@@ -145,12 +148,12 @@ class IonServer {
     try {
       await allClosed.timeout(timeout);
     } on TimeoutException {
-      _destroyConnections();
+      _destroyConnections(upgraded: false);
     }
   }
 
   /// Stops accepting connections and destroys open ones immediately,
-  /// including during a [shutdown].
+  /// upgraded ones included, also during a [shutdown].
   Future<void> close() async {
     if (_isClosed) return;
     _isClosed = true;
@@ -165,9 +168,9 @@ class IonServer {
     await _serverSocket.close();
   }
 
-  void _destroyConnections() {
+  void _destroyConnections({bool upgraded = true}) {
     for (final connection in _connections.toList()) {
-      connection.destroy();
+      if (upgraded || !connection.isUpgraded) connection.destroy();
     }
   }
 }
