@@ -22,6 +22,14 @@ class IonServer {
   InternetAddress get address => _serverSocket.address;
   int get port => _serverSocket.port;
 
+  /// Starts serving [handler] on [address] and [port].
+  ///
+  /// With [securityContext] the server terminates TLS itself. The TLS
+  /// handshake runs inside `dart:io` and cannot be timed out or aborted: a
+  /// client that never finishes it holds a socket that is not covered by the
+  /// timeouts, is not counted in [maxConnections] and is not closed by
+  /// [close]. For a server exposed to the internet, terminate TLS in a proxy
+  /// or load balancer instead.
   static Future<IonServer> serve(
     Handler handler, {
     required InternetAddress address,
