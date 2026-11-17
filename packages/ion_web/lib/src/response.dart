@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:ion_web/ion_web.dart';
 import 'package:mime/mime.dart';
 import 'package:stream_channel/stream_channel.dart';
+import 'package:web_socket_channel/status.dart' as ws_status;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Represents the body payload of a standard HTTP response.
@@ -397,7 +398,10 @@ class WebSocketResponse extends ResolvableResponse {
         try {
           await onWebSocket(wsChannel);
         } catch (_) {
-          await wsChannel.sink.close();
+          // Tell the peer it was a server error, then let the connection log
+          // the exception instead of dropping it.
+          await wsChannel.sink.close(ws_status.internalServerError);
+          rethrow;
         }
       },
       headers: upgradeHeaders,
@@ -478,11 +482,14 @@ class ContentResponse extends ResolvableResponse {
           .notModified,
           headers: responseHeaders
               .where(
+                // RFC 9110 §15.4.5; Date is added by the writer.
                 (h) =>
                     h is ETagHeader ||
                     h is LastModifiedHeader ||
                     h is CacheControlHeader ||
-                    h is VaryHeader,
+                    h is VaryHeader ||
+                    h is ContentLocationHeader ||
+                    h is ExpiresHeader,
               )
               .toList(),
         );
@@ -547,11 +554,12 @@ class FileResponse extends ResolvableResponse {
 
   @override
   Future<Response> resolve(Request request) async {
-    if (!file.existsSync()) {
+    // One stat call (a sync stat is faster than an async one): a missing
+    // path and a directory are both a 404.
+    final stat = file.statSync();
+    if (stat.type != .file) {
       return const .status(.notFound);
     }
-
-    final stat = file.statSync();
 
     return ContentResponse(
       read: (start, end) => file.openRead(start, end).cast<Uint8List>(),
@@ -580,13 +588,8 @@ bool _defaultCheckSameOrigin(TypedHeaders headers) {
   final hostHeader = headers.host;
   if (hostHeader == null || !hostHeader.isValid) return false;
 
-  if (!originHeader.host.equalsIgnoreAsciiCase(hostHeader.host)) return false;
-
-  if (hostHeader.port != null &&
-      originHeader.port != null &&
-      originHeader.port != hostHeader.port) {
-    return false;
-  }
-
-  return true;
+  // Host and port must match exactly, as in gorilla/websocket: a port given
+  // on one side only is a different origin.
+  return originHeader.host.equalsIgnoreAsciiCase(hostHeader.host) &&
+      originHeader.port == hostHeader.port;
 }

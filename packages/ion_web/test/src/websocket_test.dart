@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:ion_web/ion_web.dart';
 import 'package:ion_web/src/http/http.dart';
+import 'package:sl/sl.dart';
 import 'package:test/test.dart';
+
+import '../helpers/helpers.dart';
 
 void main() {
   group('WebSocket End-to-End Integration', () {
@@ -136,5 +138,34 @@ void main() {
         client.close(force: true);
       },
     );
+  });
+
+  group('WebSocket handler errors', () {
+    setUpAll(registerTestFallbacks);
+
+    test('close the socket with 1011 and are logged', () async {
+      final logHandler = MockLogHandler();
+      when(() => logHandler.enabled(any(), any())).thenReturn(true);
+      final server = await IonServer.serve(
+        (request) => Response.websocket((channel) async {
+          await channel.stream.first;
+          throw StateError('boom');
+        }),
+        address: InternetAddress.loopbackIPv4,
+        port: 0,
+        logger: Logger(handler: logHandler),
+      );
+      addTearDown(server.close);
+
+      final ws = await WebSocket.connect('ws://localhost:${server.port}/ws');
+      ws.add('trigger');
+      await ws.drain<void>().timeout(const Duration(seconds: 5));
+
+      expect(ws.closeCode, 1011);
+      final records = verify(
+        () => logHandler.handle(any(), captureAny()),
+      ).captured.cast<LogRecord>();
+      expect(records.map((r) => r.message), contains('error in handler'));
+    });
   });
 }

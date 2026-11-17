@@ -211,6 +211,19 @@ void main() {
       },
     );
 
+    test('Response.file is 404 for a missing path or a directory', () async {
+      final dir = Directory.systemTemp.createTempSync('ion_file_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final req = TestRequestBuilder.get('/x').build();
+
+      for (final file in [File('${dir.path}/missing.txt'), File(dir.path)]) {
+        final res = await (Response.file(file) as ResolvableResponse).resolve(
+          req,
+        );
+        expect(res.status, HttpStatusCode.notFound, reason: file.path);
+      }
+    });
+
     test(
       'Response.file clears representation headers on 412 Precondition Failed',
       () async {
@@ -248,12 +261,27 @@ void main() {
           final req = TestRequestBuilder.get(
             '/test_304.txt',
           ).headers([TypedHeader.ifModifiedSince(futureTime)]).build();
-          final res = await (Response.file(tempFile) as ResolvableResponse)
-              .resolve(req);
+          final res =
+              await (Response.file(
+                        tempFile,
+                        headers: [
+                          const .contentLocation('/test_304.txt'),
+                          .expires(DateTime.utc(2030)),
+                          const .xContentTypeOptionsNosniff(),
+                        ],
+                      )
+                      as ResolvableResponse)
+                  .resolve(req);
 
           expect(res.status, equals(HttpStatusCode.notModified));
           expect(res.headers.any((h) => h is ContentTypeHeader), isFalse);
           expect(res.headers.any((h) => h is LastModifiedHeader), isTrue);
+          expect(res.headers.any((h) => h is ContentLocationHeader), isTrue);
+          expect(res.headers.any((h) => h is ExpiresHeader), isTrue);
+          expect(
+            res.headers.any((h) => h is XContentTypeOptionsHeader),
+            isFalse,
+          );
         } finally {
           if (tempFile.existsSync()) tempFile.deleteSync();
         }

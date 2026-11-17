@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:ion_web/src/http/http.dart';
 
 class HttpParserException implements Exception {
-  const HttpParserException(this.message);
+  const HttpParserException(this.message, {this.status = .badRequest});
 
   final String message;
+
+  /// The status of the error response sent to the client.
+  final HttpStatusCode status;
 }
 
 typedef HttpRequestHead = ({
@@ -55,6 +58,7 @@ class HttpParser {
   SliceBufferToken _token = SliceBufferToken();
 
   int _consumedBytesInLastChunk = 0;
+  int _leadingEmptyLineBytes = 0;
 
   HttpRequestHead? feed(Uint8List chunk) {
     _consumedBytesInLastChunk = 0;
@@ -63,6 +67,17 @@ class HttpParser {
       _consumedBytesInLastChunk++;
       final byte = chunk[i];
 
+      // RFC 9112 §2.2: empty lines before the request-line are ignored.
+      // They still count toward the size limit.
+      if (_bufferPos == 0 && (byte.isCr || byte.isLf)) {
+        if (++_leadingEmptyLineBytes > maxHeaderSize) {
+          throw const HttpParserException(
+            'Too many empty lines before the request-line',
+          );
+        }
+        continue;
+      }
+
       if (_bufferPos >= _buffer.length) _growBuffer();
 
       _buffer[_bufferPos++] = byte;
@@ -70,13 +85,15 @@ class HttpParser {
       switch (_state) {
         case .method:
           if (byte.isSpace) {
+            if (_bufferPos == 1) {
+              throw const HttpParserException('Empty method');
+            }
             _method = _parseMethod(_buffer, _bufferPos - 1);
             _currentFieldStart = _bufferPos;
             _state = .url;
-          } else {
-            if (byte == 0 || byte.isLf || byte.isCr) {
-              throw const HttpParserException('Invalid character in method');
-            }
+          } else if (!isTchar(byte)) {
+            // RFC 9110 §9.1: method = token
+            throw const HttpParserException('Invalid character in method');
           }
         case .url:
           if (byte.isSpace) {
@@ -178,6 +195,7 @@ class HttpParser {
             if (_headerSlices.length >= maxHeaderCount) {
               throw const HttpParserException(
                 'Request header count exceeds limit',
+                status: .requestHeaderFieldsTooLarge,
               );
             }
             _headerSlices.add(
@@ -206,6 +224,7 @@ class HttpParser {
     _bufferPos = 0;
     _currentFieldStart = 0;
     _consumedBytesInLastChunk = 0;
+    _leadingEmptyLineBytes = 0;
     _method = null;
     _url = null;
     _version = null;
@@ -228,9 +247,16 @@ class HttpParser {
 
   void _growBuffer() {
     if (_buffer.length >= maxHeaderSize) {
-      throw const HttpParserException(
-        'Request header section exceeds size limit',
-      );
+      // Still in the request-line: the target is what is too long.
+      throw _state == .method || _state == .url
+          ? const HttpParserException(
+              'Request-line exceeds size limit',
+              status: .uriTooLong,
+            )
+          : const HttpParserException(
+              'Request header section exceeds size limit',
+              status: .requestHeaderFieldsTooLarge,
+            );
     }
     final grown = Uint8List(math.min(_buffer.length * 2, maxHeaderSize))
       ..setRange(0, _bufferPos, _buffer);

@@ -339,7 +339,10 @@ class HttpConnection {
         ),
       );
       socket.add(bytes);
-      _flushCloseDestroy();
+      // The rest of the rejected request may still be arriving; a lingering
+      // close keeps it from resetting the connection before the client reads
+      // the error.
+      unawaited(_lingeringClose().catchError((Object _) => _destroy()));
     } on SocketException {
       _destroy();
     }
@@ -720,7 +723,7 @@ class HttpConnection {
             .int('remote_port', remotePort),
           ],
         );
-        _sendErrorAndClose(.badRequest);
+        _sendErrorAndClose(error.status);
       }
     } on BodyControllerException catch (error) {
       if (!_isDestroyed) {

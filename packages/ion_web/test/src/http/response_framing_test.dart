@@ -72,6 +72,25 @@ void main() {
     });
   });
 
+  group('request head limits', () {
+    test('too large headers get 431', () async {
+      await serve((request) => Response.text('ok'));
+      final response = await exchange(
+        'GET / HTTP/1.1\r\nHost: localhost\r\n'
+        'X-Big: ${'a' * (70 * 1024)}\r\n\r\n',
+      );
+      expect(response, startsWith('HTTP/1.1 431 '));
+    });
+
+    test('a too long request target gets 414', () async {
+      await serve((request) => Response.text('ok'));
+      final response = await exchange(
+        'GET /${'a' * (70 * 1024)} HTTP/1.1\r\nHost: localhost\r\n\r\n',
+      );
+      expect(response, startsWith('HTTP/1.1 414 '));
+    });
+  });
+
   group('Connection header from the handler', () {
     test('cannot keep alive a connection the client asked to close', () async {
       await serve(

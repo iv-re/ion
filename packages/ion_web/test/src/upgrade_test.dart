@@ -229,6 +229,35 @@ void main() {
       expect(prepared.headers.has<SecWebSocketAcceptHeader>(), isTrue);
     });
 
+    test('Response.websocket compares Origin and Host ports exactly', () async {
+      Future<HttpStatusCode> statusFor(String host, OriginHeader origin) async {
+        final request = TestRequestBuilder.get('/ws').headers([
+          const .connectionUpgrade(),
+          const .upgradeWebsocket(),
+          const .secWebSocketKey('dGhlIHNhbXBsZSBub25jZQ=='),
+          const .secWebSocketVersionV13(),
+          .host(host),
+          origin,
+        ]).build();
+        final response = Response.websocket((_) {}) as ResolvableResponse;
+        return (await response.resolve(request)).status;
+      }
+
+      expect(
+        await statusFor('localhost:8080', .parts('http', 'localhost', 8080)),
+        HttpStatusCode.switchingProtocols,
+      );
+      // A port on one side only is another origin.
+      expect(
+        await statusFor('localhost', .parts('http', 'localhost', 8080)),
+        HttpStatusCode.forbidden,
+      );
+      expect(
+        await statusFor('localhost:8080', .parts('http', 'localhost')),
+        HttpStatusCode.forbidden,
+      );
+    });
+
     test('Response.websocket respects custom checkOrigin callback', () async {
       final request = TestRequestBuilder.get('/ws').headers([
         const .connectionUpgrade(),

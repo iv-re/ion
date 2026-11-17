@@ -22,7 +22,7 @@ void main() {
         'DELETE': .delete,
         'OPTIONS': .options,
         'CONNECT': .connect,
-        'QUERY': const HttpMethod('QUERY'),
+        'QUERY': .query,
       };
 
       methods.forEach((name, expectedMethod) {
@@ -378,6 +378,76 @@ void main() {
             ),
           ),
         );
+      });
+
+      group('request-line', () {
+        Matcher fails(String message, HttpStatusCode status) => throwsA(
+          isA<HttpParserException>()
+              .having((e) => e.message, 'message', contains(message))
+              .having((e) => e.status, 'status', status),
+        );
+
+        test('skips empty lines before the request-line', () {
+          final raw = stringToBytes(
+            '\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\n\r\n',
+          );
+          final result = HttpParser().feed(raw);
+          expect(result!.method, HttpMethod.get);
+          expect(result.consumedBytesInLastChunk, raw.length);
+        });
+
+        test('rejects a method that is not a token', () {
+          for (final method in ['GE(T', 'GET\t', 'G\x7fT', 'GÉT']) {
+            expect(
+              () => HttpParser().feed(
+                stringToBytes('$method / HTTP/1.1\r\n\r\n'),
+              ),
+              fails('Invalid character in method', .badRequest),
+              reason: method,
+            );
+          }
+        });
+
+        test('rejects an empty method', () {
+          expect(
+            () => HttpParser().feed(stringToBytes(' / HTTP/1.1\r\n\r\n')),
+            fails('Empty method', .badRequest),
+          );
+        });
+
+        test('accepts an extension method', () {
+          final result = HttpParser().feed(
+            stringToBytes('PURGE / HTTP/1.1\r\nHost: a\r\n\r\n'),
+          );
+          expect(result!.method, const HttpMethod('PURGE'));
+        });
+
+        test('a too long request-line is 414', () {
+          expect(
+            () => HttpParser(maxHeaderSize: 100).feed(
+              stringToBytes('GET /${'a' * 200} HTTP/1.1\r\n\r\n'),
+            ),
+            fails('Request-line exceeds size limit', .uriTooLong),
+          );
+        });
+
+        test('too large headers are 431', () {
+          expect(
+            () => HttpParser(maxHeaderSize: 100).feed(
+              stringToBytes('GET / HTTP/1.1\r\nX-A: ${'a' * 200}\r\n\r\n'),
+            ),
+            fails('header section exceeds', .requestHeaderFieldsTooLarge),
+          );
+        });
+
+        test('too many headers are 431', () {
+          expect(
+            () => HttpParser(maxHeaderCount: 2).feed(
+              stringToBytes('GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\n\r\n'),
+            ),
+            fails('header count', .requestHeaderFieldsTooLarge),
+          );
+        });
       });
 
       test('parses a head larger than the initial buffer, fed in pieces', () {
