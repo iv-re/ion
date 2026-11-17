@@ -1,3 +1,9 @@
+## 0.4.0
+
+- **Breaking:** require `ion_web` `^0.2.0`.
+- A `Content-Type` passed to `RawJson`, `Json` or `JsonList` replaces the
+  default one instead of being sent alongside it.
+
 ## 0.3.0
 
 - **Breaking:** upgrade `json_codable` to `^0.3.0`. Getters are named after Dart

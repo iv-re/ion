@@ -2,7 +2,7 @@ name: ion_web
 description: HTTP/1.1 web server.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/ion_web
-version: 0.1.2
+version: 0.2.0
 resolution: workspace
 
 environment:
@@ -17,7 +17,7 @@ dependencies:
   mime: ^2.0.0
   sl: ^1.1.0
   stream_channel: ^2.1.2
-  stream_web_socket_channel: ^0.1.0
+  stream_web_socket_channel: ^0.2.0
   web_socket_channel: ^3.0.3
 
 dev_dependencies:

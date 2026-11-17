@@ -1,3 +1,8 @@
+## 0.4.0
+
+- **Breaking:** upgrade `ion_web` to `^0.2.0`, `ion_router` to `^0.2.0` and
+  `ion_extra` to `^0.4.0`.
+
 ## 0.3.0
 
 - **Breaking:** upgrade `ion_extra` to `^0.3.0`.

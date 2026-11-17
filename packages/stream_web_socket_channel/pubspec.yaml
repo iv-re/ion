@@ -2,7 +2,7 @@ name: stream_web_socket_channel
 description: Dart WebSocket channel implementation.
 homepage: https://github.com/iv-re/ion
 repository: https://github.com/iv-re/ion/tree/main/packages/stream_web_socket_channel
-version: 0.1.0
+version: 0.2.0
 resolution: workspace
 
 environment:
