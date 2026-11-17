@@ -177,6 +177,32 @@ void main() {
       },
     );
 
+    test(
+      'parses a part larger than maxHeaderSize delivered in one chunk',
+      () async {
+        const boundary = 'big_boundary';
+        final transformer = MultipartStreamTransformer(
+          boundary,
+          maxHeaderSize: 1024,
+        );
+        final value = 'v' * (100 * 1024);
+
+        final parts =
+            await Stream.value(
+              utf8.encode(
+                '--$boundary\r\n'
+                'Content-Disposition: form-data; name="field"\r\n\r\n'
+                '$value\r\n'
+                '--$boundary--\r\n',
+              ),
+            ).cast<List<int>>().transform(transformer).asyncMap((part) async {
+              return (part.name, await part.text());
+            }).toList();
+
+        expect(parts, [('field', value)]);
+      },
+    );
+
     test('MultipartExceptions toString() formatting', () {
       expect(
         const MultipartException('test error').toString(),

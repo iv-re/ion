@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ion_web/src/http/utils.dart';
@@ -269,7 +270,11 @@ class _MultipartParser {
             _state = .headers;
 
           case .headers:
-            if (bytes.length - offset > maxHeaderSize) {
+            // Only the header section is limited; the buffer may also hold
+            // the part's body after it.
+            final headerEnd = _findHeaderEnd(bytes, offset);
+            final headerSize = (headerEnd?.index ?? bytes.length) - offset;
+            if (headerSize > maxHeaderSize) {
               _fail(
                 const MultipartException(
                   'Multipart header section exceeds size limit',
@@ -277,8 +282,6 @@ class _MultipartParser {
               );
               return;
             }
-
-            final headerEnd = _findHeaderEnd(bytes, offset);
             if (headerEnd == null) {
               return;
             }
@@ -407,8 +410,10 @@ class _MultipartParser {
     _mainController.add(part);
   }
 
+  /// Finds the blank line ending the part headers, looking no further than
+  /// [maxHeaderSize] bytes past [offset].
   _HeaderEnd? _findHeaderEnd(Uint8List bytes, int offset) {
-    final max = bytes.length - 1;
+    final max = math.min(bytes.length - 1, offset + maxHeaderSize + 1);
     for (var i = offset; i < max; i++) {
       if (i <= bytes.length - 4 &&
           bytes[i] == 13 &&
