@@ -51,8 +51,7 @@ Middleware bodyLimitMiddleware(
 
       // Wrap the body stream so that reading beyond [maxBytes] throws
       // [BodyLimitExceededException].
-      final limited = _LimitedBodyStream(req, maxBytes);
-      final limitedReq = req.copyWith(body: limited);
+      final limitedReq = req.copyWith(body: req.transform(_limit(maxBytes)));
 
       try {
         return await next(limitedReq);
@@ -63,42 +62,27 @@ Middleware bodyLimitMiddleware(
   };
 }
 
-/// A [Stream<Uint8List>] that counts bytes as they pass through and throws
-/// [BodyLimitExceededException] as soon as the total exceeds [_maxBytes].
-class _LimitedBodyStream extends Stream<Uint8List> {
-  _LimitedBodyStream(this._source, this._maxBytes);
-
-  final Stream<Uint8List> _source;
-  final int _maxBytes;
-
-  @override
-  StreamSubscription<Uint8List> listen(
-    void Function(Uint8List event)? onData, {
-    Function? onError,
-    void Function()? onDone,
-    bool? cancelOnError,
-  }) {
-    var bytesRead = 0;
-
-    late final StreamSubscription<Uint8List> sub;
-
-    return sub = _source.listen(
-      (chunk) {
-        bytesRead += chunk.length;
-        if (bytesRead > _maxBytes) {
-          sub.cancel();
-          // ignore: avoid_dynamic_calls
-          onError?.call(
-            BodyLimitExceededException(_maxBytes),
-            StackTrace.empty,
-          );
-          return;
-        }
-        onData?.call(chunk);
-      },
-      onError: onError,
-      onDone: onDone,
-      cancelOnError: cancelOnError ?? false,
-    );
-  }
+/// Passes chunks through until more than [maxBytes] have been seen, then
+/// emits [BodyLimitExceededException] and closes, which cancels the source.
+///
+/// A transformer rather than a custom [Stream.listen]: consumers such as
+/// [Stream.cast] and [Stream.drain] replace the handlers of the subscription
+/// they get back, so the limit has to live inside the stream itself.
+StreamTransformer<Uint8List, Uint8List> _limit(int maxBytes) {
+  var bytesRead = 0;
+  var exceeded = false;
+  return StreamTransformer.fromHandlers(
+    handleData: (chunk, sink) {
+      if (exceeded) return;
+      bytesRead += chunk.length;
+      if (bytesRead > maxBytes) {
+        exceeded = true;
+        sink
+          ..addError(BodyLimitExceededException(maxBytes))
+          ..close();
+        return;
+      }
+      sink.add(chunk);
+    },
+  );
 }

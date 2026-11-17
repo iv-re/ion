@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -130,6 +131,101 @@ void main() {
         );
         check(res.status).equals(HttpStatusCode.ok);
       });
+    });
+
+    group('consumers that set handlers after listen', () {
+      // No Content-Length, so the limit is enforced while reading.
+      final consumers = <String, Future<void> Function(Request)>{
+        'cast (as in rawJson)': (req) =>
+            utf8.decoder.bind(req.cast<List<int>>()).join(),
+        'drain': (req) => req.drain<void>(),
+        'await for': (req) async {
+          await for (final _ in req) {}
+        },
+        'listen with a one-argument onError': (req) {
+          final done = Completer<void>();
+          req.listen(
+            (_) {},
+            // A one-argument handler on purpose: it must still get the error.
+            // ignore: unnecessary_lambdas
+            onError: (Object error) => done.completeError(error),
+            onDone: () {
+              if (!done.isCompleted) done.complete();
+            },
+          );
+          return done.future;
+        },
+      };
+
+      for (final MapEntry(key: name, value: consume) in consumers.entries) {
+        test('$name gets 413', () async {
+          final limitedApp = IonRouter()
+            ..use(Middlewares.bodyLimit(100))
+            ..post('/upload', (req) async {
+              await consume(req);
+              return .text('ok');
+            });
+
+          final res = await Future.value(
+            limitedApp(_makeRequest(body: _chunkedBody([40, 40, 40]))),
+          ).timeout(const Duration(seconds: 2));
+          check(res.status).equals(HttpStatusCode.contentTooLarge);
+        });
+
+        test('$name reads a body within the limit', () async {
+          final limitedApp = IonRouter()
+            ..use(Middlewares.bodyLimit(100))
+            ..post('/upload', (req) async {
+              await consume(req);
+              return .text('ok');
+            });
+
+          final res = await Future.value(
+            limitedApp(_makeRequest(body: _chunkedBody([30, 30, 30]))),
+          ).timeout(const Duration(seconds: 2));
+          check(res.status).equals(HttpStatusCode.ok);
+        });
+      }
+    });
+
+    test('multipart body without Content-Length over the limit gets 413', () {
+      final multipartApp = IonRouter()
+        ..use(Middlewares.bodyLimit(1000))
+        ..post('/upload', (req) async {
+          final form = await req.multipart();
+          await form.clean();
+          return .text('ok');
+        });
+
+      Future<Response> upload(int size) async {
+        final body = utf8.encode(
+          '--b\r\n'
+          'Content-Disposition: form-data; name="file"; filename="a.bin"\r\n'
+          '\r\n'
+          '${'x' * size}\r\n'
+          '--b--\r\n',
+        );
+        return multipartApp(
+          _makeRequest(
+            body: Stream.fromIterable([
+              for (var i = 0; i < body.length; i += 100)
+                Uint8List.fromList(
+                  body.sublist(i, (i + 100).clamp(0, body.length)),
+                ),
+            ]),
+            headers: [const .contentType('multipart/form-data; boundary=b')],
+          ),
+        );
+      }
+
+      return Future.wait([
+        upload(5000).then((res) {
+          check(res.status).equals(HttpStatusCode.contentTooLarge);
+        }),
+        upload(100).then((res) {
+          check(res.status).equals(HttpStatusCode.ok);
+        }),
+      ]);
     });
 
     group('custom onExceeded callback', () {
