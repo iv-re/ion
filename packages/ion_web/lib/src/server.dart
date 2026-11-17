@@ -12,7 +12,12 @@ class IonServer {
 
   final ServerSocketAdapter _serverSocket;
   final Set<HttpConnection> _connections = {};
+
+  /// No new connections are accepted (set by [shutdown] or [close]).
   bool _isClosing = false;
+
+  /// [close] was called.
+  bool _isClosed = false;
 
   InternetAddress get address => _serverSocket.address;
   int get port => _serverSocket.port;
@@ -44,7 +49,7 @@ class IonServer {
     final server = IonServer._(serverSocket);
     HttpResponseWriter.retainDateCache();
 
-    serverSocket.listen(
+    serverSocket.connections.listen(
       (socket) {
         if (server._isClosing ||
             (maxConnections != null &&
@@ -112,51 +117,49 @@ class IonServer {
     return server;
   }
 
+  /// Stops accepting connections, lets in-flight requests finish and closes
+  /// idle connections. After [timeout], remaining connections are destroyed.
+  ///
+  /// [close] may be called meanwhile to destroy them right away.
   Future<void> shutdown({Duration? timeout}) async {
     if (_isClosing) return;
-    _isClosing = true;
-    HttpResponseWriter.releaseDateCache();
+    await _stopAccepting();
 
-    await _serverSocket.close();
-
-    if (_connections.isEmpty) return;
-
-    final connectionsSnapshot = _connections.toList();
-    for (final connection in connectionsSnapshot) {
+    for (final connection in _connections.toList()) {
       connection.shutdown();
     }
 
-    final allClosed = Future.wait(
-      _connections.map((c) => c.done).toList(),
-    );
-
-    if (timeout != null) {
-      try {
-        await allClosed.timeout(timeout);
-      } on TimeoutException {
-        for (final connection in _connections.toList()) {
-          try {
-            connection.socket.destroy();
-          } catch (_) {}
-        }
-      }
-    } else {
+    final allClosed = Future.wait([for (final c in _connections) c.done]);
+    if (timeout == null) {
       await allClosed;
+      return;
+    }
+    try {
+      await allClosed.timeout(timeout);
+    } on TimeoutException {
+      _destroyConnections();
     }
   }
 
+  /// Stops accepting connections and destroys open ones immediately,
+  /// including during a [shutdown].
   Future<void> close() async {
+    if (_isClosed) return;
+    _isClosed = true;
+    await _stopAccepting();
+    _destroyConnections();
+  }
+
+  Future<void> _stopAccepting() async {
     if (_isClosing) return;
     _isClosing = true;
     HttpResponseWriter.releaseDateCache();
-
     await _serverSocket.close();
+  }
 
+  void _destroyConnections() {
     for (final connection in _connections.toList()) {
-      try {
-        connection.socket.destroy();
-      } catch (_) {}
+      connection.destroy();
     }
-    _connections.clear();
   }
 }

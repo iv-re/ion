@@ -320,6 +320,9 @@ class HttpConnection {
     await socket.close();
   }
 
+  /// Closes the connection immediately, aborting any request in progress.
+  void destroy() => _destroy();
+
   void shutdown() {
     _isShuttingDown = true;
     if (_state == .idle || _state == .newConnection) {

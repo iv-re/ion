@@ -181,6 +181,39 @@ void main() {
   });
 
   group('IonServer Shutdown', () {
+    test(
+      'close() aborts a graceful shutdown that waits for a request',
+      () async {
+        final started = Completer<void>();
+        final never = Completer<Response>();
+        final server = await IonServer.serve(
+          (request) {
+            started.complete();
+            return never.future;
+          },
+          address: InternetAddress.loopbackIPv4,
+          port: 0,
+        );
+        final client = await Socket.connect(
+          InternetAddress.loopbackIPv4,
+          server.port,
+        );
+        final clientClosed = client.drain<void>().catchError((Object _) {});
+        client.add(stringToBytes('GET / HTTP/1.1\r\nHost: localhost\r\n\r\n'));
+        await started.future;
+
+        var shutdownDone = false;
+        final shutdown = server.shutdown().then((_) => shutdownDone = true);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(shutdownDone, isFalse);
+
+        await server.close().timeout(const Duration(seconds: 2));
+        await shutdown.timeout(const Duration(seconds: 2));
+        await clientClosed.timeout(const Duration(seconds: 2));
+        client.destroy();
+      },
+    );
+
     test('shuts down immediately when no active connections exist', () async {
       final server = await IonServer.serve(
         (request) => Response.bytes(stringToBytes('OK')),

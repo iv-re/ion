@@ -1,24 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-/// Unified adapter interface for underlying TCP and TLS server sockets.
-abstract interface class ServerSocketAdapter {
-  InternetAddress get address;
-  int get port;
+/// A bound TCP ([ServerSocket]) or TLS ([SecureServerSocket]) server socket.
+///
+/// Both are a `Stream<Socket>` with an address, a port and `close`; this only
+/// gives them one type.
+final class ServerSocketAdapter {
+  ServerSocketAdapter._(this.connections, this.address, this.port, this._close);
 
-  StreamSubscription<Socket> listen(
-    void Function(Socket socket) onData, {
-    Function? onError,
-    void Function()? onDone,
-    bool? cancelOnError,
-  });
-
-  Future<void> close();
-
-  /// Binds a [ServerSocketAdapter] to the given [address] and [port].
-  ///
-  /// If [securityContext] is provided, a TLS ([SecureServerSocket]) is bound;
-  /// otherwise a standard TCP ([ServerSocket]) is bound.
+  /// Binds to [address] and [port]: TLS when [securityContext] is given,
+  /// plain TCP otherwise.
   static Future<ServerSocketAdapter> bind(
     InternetAddress address,
     int port, {
@@ -34,75 +25,22 @@ abstract interface class ServerSocketAdapter {
         backlog: backlog,
         shared: shared,
       );
-      return _TlsServerSocketAdapter(socket);
-    } else {
-      final socket = await ServerSocket.bind(
-        address,
-        port,
-        backlog: backlog,
-        shared: shared,
-      );
-      return _TcpServerSocketAdapter(socket);
+      return ._(socket, socket.address, socket.port, socket.close);
     }
-  }
-}
-
-class _TcpServerSocketAdapter implements ServerSocketAdapter {
-  _TcpServerSocketAdapter(this._socket);
-
-  final ServerSocket _socket;
-
-  @override
-  InternetAddress get address => _socket.address;
-
-  @override
-  int get port => _socket.port;
-
-  @override
-  StreamSubscription<Socket> listen(
-    void Function(Socket socket) onData, {
-    Function? onError,
-    void Function()? onDone,
-    bool? cancelOnError,
-  }) {
-    return _socket.listen(
-      onData,
-      onError: onError,
-      onDone: onDone,
-      cancelOnError: cancelOnError,
+    final socket = await ServerSocket.bind(
+      address,
+      port,
+      backlog: backlog,
+      shared: shared,
     );
+    return ._(socket, socket.address, socket.port, socket.close);
   }
 
-  @override
-  Future<void> close() => _socket.close();
-}
+  /// Accepted client connections.
+  final Stream<Socket> connections;
+  final InternetAddress address;
+  final int port;
+  final Future<void> Function() _close;
 
-class _TlsServerSocketAdapter implements ServerSocketAdapter {
-  _TlsServerSocketAdapter(this._socket);
-
-  final SecureServerSocket _socket;
-
-  @override
-  InternetAddress get address => _socket.address;
-
-  @override
-  int get port => _socket.port;
-
-  @override
-  StreamSubscription<Socket> listen(
-    void Function(Socket socket) onData, {
-    Function? onError,
-    void Function()? onDone,
-    bool? cancelOnError,
-  }) {
-    return _socket.listen(
-      onData,
-      onError: onError,
-      onDone: onDone,
-      cancelOnError: cancelOnError,
-    );
-  }
-
-  @override
-  Future<void> close() => _socket.close();
+  Future<void> close() => _close();
 }
