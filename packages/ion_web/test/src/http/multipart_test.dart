@@ -222,4 +222,122 @@ void main() {
       );
     });
   });
+
+  group('MultipartStreamTransformer backpressure', () {
+    const boundary = 'bp';
+
+    Uint8List bytes(String text) => Uint8List.fromList(utf8.encode(text));
+
+    /// Lets queued stream events and pause/resume callbacks run.
+    Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+    late StreamController<List<int>> source;
+    late Stream<MultipartPart> parts;
+
+    setUp(() {
+      source = StreamController<List<int>>();
+      parts = source.stream.transform(MultipartStreamTransformer(boundary));
+    });
+
+    void sendPartHead(String name) => source.add(
+      bytes(
+        '--$boundary\r\n'
+        'Content-Disposition: form-data; name="$name"\r\n\r\n',
+      ),
+    );
+
+    test('pauses the source while the part listener is paused', () async {
+      final partSubscription = Completer<StreamSubscription<Uint8List>>();
+      parts.listen((part) => partSubscription.complete(part.listen((_) {})));
+
+      sendPartHead('file');
+      source.add(bytes('x' * 1000));
+      final subscription = await partSubscription.future;
+      await settle();
+      expect(source.isPaused, isFalse);
+
+      subscription.pause();
+      await settle();
+      expect(source.isPaused, isTrue);
+
+      subscription.resume();
+      await settle();
+      expect(source.isPaused, isFalse);
+      await subscription.cancel();
+    });
+
+    test('pauses the source while the consumer is busy and has not '
+        'started reading the part', () async {
+      final gotPart = Completer<MultipartPart>();
+      final busy = Completer<void>();
+      final loop = () async {
+        await for (final part in parts) {
+          gotPart.complete(part);
+          await busy.future; // busy before reading the part
+          await part.drain<void>();
+          break;
+        }
+      }();
+
+      sendPartHead('file');
+      source.add(bytes('x' * 1000));
+      await gotPart.future;
+      await settle();
+      expect(source.isPaused, isTrue);
+
+      busy.complete();
+      await settle();
+      expect(source.isPaused, isFalse);
+
+      source.add(bytes('\r\n--$boundary--\r\n'));
+      await loop;
+    });
+
+    test('keeps reading the rest of a cancelled part', () async {
+      final values = <String>[];
+      final done = () async {
+        await for (final part in parts) {
+          if (part.name == 'skip') {
+            await part.listen((_) {}).cancel();
+            continue;
+          }
+          values.add(await part.text());
+        }
+      }();
+
+      sendPartHead('skip');
+      source.add(bytes('${'x' * 1000}\r\n'));
+      await settle();
+      expect(source.isPaused, isFalse);
+      sendPartHead('keep');
+      source.add(bytes('value\r\n--$boundary--\r\n'));
+
+      await done;
+      expect(values, ['value']);
+    });
+
+    test('stops reading the source after the closing boundary', () async {
+      final done = parts.drain<void>();
+      source.add(bytes('--$boundary--\r\nepilogue'));
+      await done;
+      await settle();
+      expect(source.hasListener, isFalse);
+    });
+
+    test('stops reading the source after a parse error', () async {
+      final transformer = MultipartStreamTransformer(
+        boundary,
+        maxHeaderSize: 10,
+      );
+      final failing = source.stream.transform(transformer);
+      final done = expectLater(
+        failing.drain<void>(),
+        throwsA(isA<MultipartException>()),
+      );
+      source.add(bytes('--$boundary\r\n${'h' * 100}'));
+      await done;
+      await settle();
+      expect(source.hasListener, isFalse);
+    });
+  });
 }

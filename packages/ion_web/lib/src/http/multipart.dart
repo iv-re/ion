@@ -92,13 +92,17 @@ class MultipartStreamTransformer
   @override
   Stream<MultipartPart> bind(Stream<List<int>> stream) {
     final controller = StreamController<MultipartPart>(sync: true);
+    StreamSubscription<List<int>>? subscription;
     final parser = _MultipartParser(
       boundary,
       controller,
       maxHeaderSize: maxHeaderSize,
+      pauseSource: () => subscription?.pause(),
+      resumeSource: () => subscription?.resume(),
+      // Nothing more is needed from the source once the parser is done: stop
+      // reading it, so a paused source is not left hanging.
+      onFinished: () => subscription?.cancel(),
     );
-
-    StreamSubscription<List<int>>? subscription;
 
     controller.onListen = () {
       subscription = stream.listen(
@@ -109,8 +113,8 @@ class MultipartStreamTransformer
       );
     };
 
-    controller.onPause = () {};
-    controller.onResume = () => subscription?.resume();
+    controller.onPause = parser.updateFlow;
+    controller.onResume = parser.updateFlow;
     controller.onCancel = () {
       subscription?.cancel();
       parser.dispose();
@@ -133,6 +137,9 @@ class _MultipartParser {
     String boundary,
     this._mainController, {
     this.maxHeaderSize = 64 * 1024,
+    this.pauseSource,
+    this.resumeSource,
+    this.onFinished,
   }) : _crlfDelimiterBytes = Uint8List.fromList(
          ascii.encode('\r\n--$boundary'),
        ),
@@ -150,6 +157,9 @@ class _MultipartParser {
 
   final StreamController<MultipartPart> _mainController;
   final int maxHeaderSize;
+  final void Function()? pauseSource;
+  final void Function()? resumeSource;
+  final void Function()? onFinished;
   final Uint8List _crlfDelimiterBytes;
   final Uint8List _lfDelimiterBytes;
   final Uint8List _firstBoundaryBytes;
@@ -161,7 +171,39 @@ class _MultipartParser {
   final BytesBuilder _buffer = BytesBuilder(copy: false);
 
   StreamController<Uint8List>? _activePartController;
+  bool _isActivePartCancelled = false;
+  bool _isSourcePaused = false;
   bool _isDisposed = false;
+
+  /// Pauses or resumes the source so data is read only as fast as it is
+  /// consumed.
+  ///
+  /// The source waits while the current part's listener is paused, and while
+  /// the consumer is busy (the part stream is paused) and has not started
+  /// reading the current part yet. A part nobody reads once the consumer has
+  /// moved on is still buffered: its listener may come later.
+  void updateFlow() {
+    if (_isDisposed) return;
+    final part = _activePartController;
+    final bool shouldPause;
+    if (part != null && !part.isClosed && !_isActivePartCancelled) {
+      shouldPause = part.hasListener ? part.isPaused : _mainController.isPaused;
+    } else {
+      shouldPause = _mainController.hasListener && _mainController.isPaused;
+    }
+    if (shouldPause == _isSourcePaused) return;
+    _isSourcePaused = shouldPause;
+    if (shouldPause) {
+      pauseSource?.call();
+    } else {
+      resumeSource?.call();
+    }
+  }
+
+  void _finish() {
+    _isDisposed = true;
+    onFinished?.call();
+  }
 
   void onData(List<int> chunk) {
     if (_isDisposed) return;
@@ -207,7 +249,7 @@ class _MultipartParser {
         _mainController.close();
       }
     }
-    _isDisposed = true;
+    _finish();
   }
 
   void _closeActivePartWithError(Object error, [StackTrace? stackTrace]) {
@@ -223,6 +265,7 @@ class _MultipartParser {
       _activePartController!.close();
       _activePartController = null;
     }
+    updateFlow();
   }
 
   void _closeMain() {
@@ -230,7 +273,7 @@ class _MultipartParser {
     if (!_mainController.isClosed) {
       _mainController.close();
     }
-    _isDisposed = true;
+    _finish();
   }
 
   void _processBuffer() {
@@ -352,6 +395,7 @@ class _MultipartParser {
   }
 
   void _emitToActivePart(Uint8List chunk) {
+    if (_isActivePartCancelled) return;
     if (_activePartController != null && !_activePartController!.isClosed) {
       _activePartController!.add(chunk);
     }
@@ -396,8 +440,21 @@ class _MultipartParser {
       } catch (_) {}
     }
 
-    final partController = StreamController<Uint8List>();
+    late final StreamController<Uint8List> partController;
+    partController = StreamController<Uint8List>(
+      onListen: updateFlow,
+      onPause: updateFlow,
+      onResume: updateFlow,
+      onCancel: () {
+        // The rest of a cancelled part is dropped.
+        if (identical(_activePartController, partController)) {
+          _isActivePartCancelled = true;
+        }
+        updateFlow();
+      },
+    );
     _activePartController = partController;
+    _isActivePartCancelled = false;
 
     final part = MultipartPart(
       name: name,
@@ -408,6 +465,7 @@ class _MultipartParser {
     );
 
     _mainController.add(part);
+    updateFlow();
   }
 
   /// Finds the blank line ending the part headers, looking no further than

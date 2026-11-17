@@ -29,8 +29,13 @@ abstract interface class BodyController {
   bool get isDone;
   bool get hasListener;
 
+  /// Whether a listener is consuming the body: it subscribed and has not
+  /// cancelled.
+  bool get isReading;
+
   /// Whether the source is paused because [maxUnreadBufferBytes] of body
-  /// were buffered without a listener.
+  /// arrived while nobody was reading it: buffered before a listener came,
+  /// or dropped after the listener cancelled.
   bool get isPausedUnread;
 
   /// Whether the body is known to not fit into the unread buffer.
@@ -47,7 +52,7 @@ abstract interface class BodyController {
 /// [maxUnreadBufferBytes] are buffered, the source is paused via `onPause`
 /// and resumed when a listener arrives. `onUnreadLimit` is called when that
 /// pause happens. After the listener cancels its subscription, remaining
-/// body bytes are consumed and dropped, so the source keeps flowing.
+/// body bytes are dropped, up to the same limit.
 abstract base class _BaseBodyController implements BodyController {
   _BaseBodyController({
     required this._onDone,
@@ -69,6 +74,7 @@ abstract base class _BaseBodyController implements BodyController {
         }
         _bufferedChunks.clear();
         _bufferedLength = 0;
+        _unreadBytes = 0;
         if (_isClosed && !_controller.isClosed) {
           _controller.close();
         }
@@ -86,6 +92,7 @@ abstract base class _BaseBodyController implements BodyController {
       },
       onCancel: () {
         _isDiscarding = true;
+        _unreadBytes = 0;
         if (_isListenerPaused) {
           _isListenerPaused = false;
           _resumeSource?.call();
@@ -108,11 +115,18 @@ abstract base class _BaseBodyController implements BodyController {
   bool _isListenerPaused = false;
   bool _isDiscarding = false;
 
+  /// Body bytes nobody has read: buffered while there is no listener, or
+  /// dropped since the listener cancelled.
+  int _unreadBytes = 0;
+
   @override
   Stream<Uint8List> get stream => _controller.stream;
 
   @override
   bool get hasListener => _hasListener;
+
+  @override
+  bool get isReading => _hasListener && !_isDiscarding;
 
   @override
   bool get isPausedUnread => _isPausedUnread;
@@ -128,6 +142,7 @@ abstract base class _BaseBodyController implements BodyController {
     }
     _bufferedChunks.clear();
     _bufferedLength = 0;
+    _unreadBytes = 0;
     _resumeUnread();
     return result;
   }
@@ -140,16 +155,19 @@ abstract base class _BaseBodyController implements BodyController {
   }
 
   void _addChunk(Uint8List chunk) {
-    if (_isDiscarding || chunk.isEmpty) return;
-    if (_hasListener) {
+    if (chunk.isEmpty) return;
+    if (isReading) {
       if (!_controller.isClosed) {
         _controller.add(chunk);
       }
       return;
     }
-    _bufferedChunks.add(chunk);
-    _bufferedLength += chunk.length;
-    if (_bufferedLength >= maxUnreadBufferBytes && !_isPausedUnread) {
+    if (!_isDiscarding) {
+      _bufferedChunks.add(chunk);
+      _bufferedLength += chunk.length;
+    }
+    _unreadBytes += chunk.length;
+    if (_unreadBytes >= maxUnreadBufferBytes && !_isPausedUnread) {
       _isPausedUnread = true;
       _pauseSource?.call();
       _onUnreadLimit?.call();
@@ -193,8 +211,8 @@ final class FixedLengthBodyController extends _BaseBodyController {
 
   @override
   bool get exceedsUnreadBuffer =>
-      !_hasListener &&
-      _bufferedLength + (_contentLength - _consumed) > maxUnreadBufferBytes;
+      !isReading &&
+      _unreadBytes + (_contentLength - _consumed) > maxUnreadBufferBytes;
 
   /// Adds [data] to the body stream.
   ///

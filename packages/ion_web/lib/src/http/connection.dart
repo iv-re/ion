@@ -126,6 +126,16 @@ class HttpConnection {
   Timer? _lingerTimer;
   Completer<bool>? _unreadBodyWait;
 
+  /// Completed when the current body runs out of its unread budget; armed
+  /// anew by each wait, so an earlier overflow is not seen as a new one.
+  Completer<void>? _unreadLimitSignal;
+
+  void _onUnreadLimit() {
+    final signal = _unreadLimitSignal;
+    _unreadLimitSignal = null;
+    signal?.complete();
+  }
+
   void start() {
     _startIdleTimer();
     _subscription = socket.listen(
@@ -242,14 +252,11 @@ class HttpConnection {
   /// A body the handler never listened to is read to the end and dropped if
   /// it fits into the unread buffer. Otherwise keep-alive is not possible,
   /// because the rest of the body would have to be read from the socket.
-  Future<bool> _settleUnreadBody(
-    Completer<void> bodyDone,
-    Completer<void> unreadLimit,
-  ) async {
+  Future<bool> _settleUnreadBody(Completer<void> bodyDone) async {
     final controller = _bodyController;
     // A listener that is still reading is awaited after the response is
     // written: the response body may depend on the request body.
-    if (bodyDone.isCompleted || controller == null || controller.hasListener) {
+    if (bodyDone.isCompleted || controller == null || controller.isReading) {
       return true;
     }
     if (_canSend100Continue) {
@@ -267,6 +274,7 @@ class HttpConnection {
     }
 
     unawaited(bodyDone.future.then((_) => complete(!_forceClose)));
+    final unreadLimit = _unreadLimitSignal = Completer<void>();
     unawaited(unreadLimit.future.then((_) => complete(false)));
     final timer = Timer(_maxUnreadBodyWait, () => complete(false));
     try {
@@ -274,6 +282,25 @@ class HttpConnection {
     } finally {
       timer.cancel();
       _unreadBodyWait = null;
+      _unreadLimitSignal = null;
+    }
+  }
+
+  /// Waits for the rest of a body after the response head was written.
+  ///
+  /// Returns `false` when the handler stopped reading and more than the
+  /// unread budget is still coming: the connection then has to be closed.
+  Future<bool> _finishBodyAfterResponse(Completer<void> bodyDone) async {
+    if (bodyDone.isCompleted) return true;
+    if (_bodyController?.isPausedUnread ?? false) return false;
+    final unreadLimit = _unreadLimitSignal = Completer<void>();
+    try {
+      return await Future.any([
+        bodyDone.future.then((_) => true),
+        unreadLimit.future.then((_) => false),
+      ]);
+    } finally {
+      _unreadLimitSignal = null;
     }
   }
 
@@ -377,10 +404,6 @@ class HttpConnection {
         _cancelHeaderTimer();
         _readyForNextRequest = Completer<void>();
         final bodyDone = Completer<void>();
-        final unreadLimit = Completer<void>();
-        void onUnreadLimit() {
-          if (!unreadLimit.isCompleted) unreadLimit.complete();
-        }
 
         final consumedInHeaders = requestHead.consumedBytesInLastChunk;
         final remainingInChunk = consumedInHeaders == currentData.length
@@ -490,7 +513,7 @@ class HttpConnection {
             onPause: () => _subscription?.pause(),
             onResume: () => _subscription?.resume(),
             onListen: _canSend100Continue ? _send100Continue : null,
-            onUnreadLimit: onUnreadLimit,
+            onUnreadLimit: _onUnreadLimit,
           );
           requestBody = _bodyController!.stream;
           currentData = _bodyController!.add(remainingInChunk);
@@ -503,7 +526,7 @@ class HttpConnection {
             onPause: () => _subscription?.pause(),
             onResume: () => _subscription?.resume(),
             onListen: _canSend100Continue ? _send100Continue : null,
-            onUnreadLimit: onUnreadLimit,
+            onUnreadLimit: _onUnreadLimit,
           );
           requestBody = _bodyController!.stream;
           currentData = _bodyController!.add(remainingInChunk);
@@ -555,7 +578,7 @@ class HttpConnection {
 
           var keepAlive = request.keepAlive && !_forceClose && !_isShuttingDown;
           if (keepAlive && response.onUpgrade == null) {
-            keepAlive = await _settleUnreadBody(bodyDone, unreadLimit);
+            keepAlive = await _settleUnreadBody(bodyDone);
             if (_isDestroyed) return;
           }
 
@@ -617,18 +640,19 @@ class HttpConnection {
             }
 
             _parser.reset();
-            if (!bodyDone.isCompleted) {
-              // _settleUnreadBody only keeps the connection alive with an
-              // unfinished body when the handler is reading it.
-              assert(
-                _bodyController == null || _bodyController!.hasListener,
-                'keep-alive promised with an unread request body',
-              );
-              await bodyDone.future;
+            // A handler still reading the body is awaited. One that stopped
+            // reading after the head was sent can only be drained up to the
+            // unread budget; past it the connection is closed, as Go does.
+            if (!await _finishBodyAfterResponse(bodyDone)) {
+              _forceClose = true;
             }
             if (_isShuttingDown || _forceClose || _clientClosed) {
-              await socket.close();
-              _destroy();
+              if (bodyDone.isCompleted) {
+                await socket.close();
+                _destroy();
+              } else {
+                await _lingeringClose();
+              }
               return;
             }
             if (_unflushedBytes >= _flushThreshold) {

@@ -438,7 +438,7 @@ void main() {
           caughtError = e;
         }
 
-        expect(caughtError, isA<MultipartException>());
+        expect(caughtError, isA<SocketException>());
 
         // Verify no temporary ion_upload_ directories were leaked on disk!
         final tempDirsAfter = Directory.systemTemp
@@ -495,7 +495,7 @@ void main() {
     );
 
     test(
-      'transforms non-MultipartException in stream to MultipartException',
+      'passes body stream errors through unchanged',
       () async {
         final controller = StreamController<Uint8List>();
         final req = TestRequestBuilder.post('/upload')
@@ -510,7 +510,7 @@ void main() {
         final stream = req.multipartStream();
         final expectation = expectLater(
           stream.drain<void>(),
-          throwsA(isA<MultipartException>()),
+          throwsA(isA<StateError>()),
         );
 
         controller.addError(StateError('Unexpected generic stream error'));

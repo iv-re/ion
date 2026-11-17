@@ -173,6 +173,10 @@ extension RequestMultipartExtension on Request {
   ///
   /// Throws [NotMultipartException] if the request is not multipart.
   /// Throws [MissingBoundaryException] if the boundary parameter is missing.
+  ///
+  /// Malformed multipart data is reported as [MultipartException]. Errors of
+  /// the request body itself (a dropped connection, a body size limit) are
+  /// passed through unchanged.
   Stream<MultipartPart> multipartStream() {
     if (!isMultipart) {
       throw const NotMultipartException();
@@ -185,12 +189,7 @@ extension RequestMultipartExtension on Request {
 
     final transformer = MultipartStreamTransformer(boundary);
 
-    return cast<List<int>>().transform(transformer).handleError((Object error) {
-      if (error is MultipartException) {
-        throw error;
-      }
-      throw MultipartException(error.toString());
-    });
+    return cast<List<int>>().transform(transformer);
   }
 
   /// Parses the entire request body into a [MultipartForm].
@@ -207,6 +206,10 @@ extension RequestMultipartExtension on Request {
   ///
   /// It is highly recommended to call [MultipartForm.clean] once processing
   /// is done to delete any spooled temporary files.
+  ///
+  /// Malformed multipart data and exceeded limits are reported as
+  /// [MultipartException]; errors of the request body itself are passed
+  /// through unchanged. Either way, spooled files are deleted first.
   Future<MultipartForm> multipart({
     int maxMemory = 32 * 1024 * 1024,
     int maxParts = 1000,
@@ -267,15 +270,15 @@ extension RequestMultipartExtension on Request {
       }
 
       return MultipartForm(fields: fields, files: files);
-    } catch (e) {
+    } catch (_) {
       await cleanupAll();
-      if (e is MultipartException) {
-        rethrow;
-      }
-      throw MultipartException(e.toString());
+      rethrow;
     }
   }
 }
+
+/// How much spooled file data may wait in memory for the disk.
+const int _diskFlushBytes = 1024 * 1024;
 
 Future<MultipartFile> _parseFile(
   MultipartPart part,
@@ -286,6 +289,7 @@ Future<MultipartFile> _parseFile(
   File? tempFile;
   IOSink? diskSink;
   var isSpoolingToDisk = false;
+  var unflushedBytes = 0;
 
   var isSuccess = false;
   try {
@@ -300,6 +304,7 @@ Future<MultipartFile> _parseFile(
           diskSink = file.openWrite();
 
           if (fileBytesBuilder.isNotEmpty) {
+            unflushedBytes += fileBytesBuilder.length;
             diskSink.add(fileBytesBuilder.takeBytes());
           }
           diskSink.add(chunk);
@@ -308,6 +313,16 @@ Future<MultipartFile> _parseFile(
         }
       } else {
         diskSink!.add(chunk);
+      }
+      if (isSpoolingToDisk) {
+        unflushedBytes += chunk.length;
+        // IOSink buffers without limit; waiting for the disk here pauses the
+        // part, and with it the request body, when the disk is slower than
+        // the network.
+        if (unflushedBytes >= _diskFlushBytes) {
+          unflushedBytes = 0;
+          await diskSink!.flush();
+        }
       }
     }
 

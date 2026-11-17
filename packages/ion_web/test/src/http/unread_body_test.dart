@@ -297,16 +297,19 @@ void main() {
       await client.close();
     });
 
-    test('handler cancels the body mid-way, connection stays usable', () async {
-      await serve((request) async {
-        if (request.method == .post) {
-          await request.first;
-          return Response.text('partial');
-        }
-        return Response.text('second');
-      });
+    Future<void> serveCancellingAfterFirstChunk() => serve((request) async {
+      if (request.method == .post) {
+        await request.first;
+        return Response.text('partial');
+      }
+      return Response.text('second');
+    });
 
-      final body = _pattern(1024 * 1024);
+    test('handler cancels a small body mid-way: rest is drained, '
+        'connection stays usable', () async {
+      await serveCancellingAfterFirstChunk();
+
+      final body = _pattern(100 * 1024);
       final client = await connect();
       client.socket
         ..add(
@@ -331,6 +334,57 @@ void main() {
       );
       expect(second.body, 'second');
       await client.close();
+    });
+
+    test('handler cancels a large body mid-way: Connection: close, '
+        'the rest is not downloaded', () async {
+      await serveCancellingAfterFirstChunk();
+
+      final body = _pattern(8 * 1024 * 1024);
+      final client = await connect();
+      client.socket
+        ..add(
+          ascii.encode(
+            'POST /upload HTTP/1.1\r\n'
+            'Host: localhost\r\n'
+            'Content-Length: ${body.length}\r\n'
+            '\r\n',
+          ),
+        )
+        ..add(body);
+
+      final first = await client.readResponse();
+      expect(first.status, 200);
+      expect(first.headers['connection'], 'close');
+      await client.closed.timeout(const Duration(seconds: 5));
+    });
+
+    test('handler cancels a large chunked body mid-way: Connection: close '
+        'once the unread budget is used up', () async {
+      await serveCancellingAfterFirstChunk();
+
+      final client = await connect();
+      client.socket.add(
+        ascii.encode(
+          'POST /upload HTTP/1.1\r\n'
+          'Host: localhost\r\n'
+          'Transfer-Encoding: chunked\r\n'
+          '\r\n',
+        ),
+      );
+      final chunk = _pattern(64 * 1024);
+      for (var i = 0; i < 128; i++) {
+        client.socket
+          ..add(ascii.encode('${chunk.length.toRadixString(16)}\r\n'))
+          ..add(chunk)
+          ..add(ascii.encode('\r\n'));
+      }
+
+      final stopwatch = Stopwatch()..start();
+      final first = await client.readResponse();
+      expect(first.headers['connection'], 'close');
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+      await client.closed.timeout(const Duration(seconds: 5));
     });
   });
 }
