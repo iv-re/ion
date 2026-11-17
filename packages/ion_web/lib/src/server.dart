@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:ion_web/src/handler.dart';
 import 'package:ion_web/src/http/http.dart';
+import 'package:ion_web/src/http_response_writer.dart';
 import 'package:ion_web/src/server_socket.dart';
 import 'package:sl/sl.dart';
 
@@ -41,6 +42,7 @@ class IonServer {
     );
 
     final server = IonServer._(serverSocket);
+    HttpResponseWriter.retainDateCache();
 
     serverSocket.listen(
       (socket) {
@@ -113,6 +115,7 @@ class IonServer {
   Future<void> shutdown({Duration? timeout}) async {
     if (_isClosing) return;
     _isClosing = true;
+    HttpResponseWriter.releaseDateCache();
 
     await _serverSocket.close();
 
@@ -145,6 +148,7 @@ class IonServer {
   Future<void> close() async {
     if (_isClosing) return;
     _isClosing = true;
+    HttpResponseWriter.releaseDateCache();
 
     await _serverSocket.close();
 

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:ion_web/src/http/http.dart';
 import 'package:ion_web/src/response.dart';
+import 'package:meta/meta.dart';
 
 /// Serializes HTTP responses (headers and body) directly to network sockets.
 typedef ResponseWriteResult = (
@@ -161,6 +162,15 @@ abstract final class HttpResponseWriter {
     return (headBytesCount + bodyBytesWritten, effectiveKeepAlive);
   }
 
+  /// Called by a server when it starts accepting connections, so the cached
+  /// `Date` header is kept fresh by a timer instead of on every response.
+  @internal
+  static void retainDateCache() => _HttpDateCache.retain();
+
+  /// Called by a server once it stops; undoes [retainDateCache].
+  @internal
+  static void releaseDateCache() => _HttpDateCache.release();
+
   /// Whether a `Connection` header value lists the `close` option.
   static bool _hasCloseToken(String value) {
     for (final token in value.split(',')) {
@@ -255,22 +265,47 @@ extension on List<TypedHeader> {
   }
 }
 
+/// The `Date` header line.
+///
+/// While at least one server is running, a periodic timer keeps it fresh
+/// and reading it is free. The timer stops with the last server, so it does
+/// not keep the isolate alive. Without a running server the line is rebuilt
+/// on read, at most once per second.
 abstract final class _HttpDateCache {
+  static int _users = 0;
   static Timer? _timer;
-  static Uint8List _cachedBytes = _format();
+  static int _cachedSecond = -1;
+  static Uint8List _cachedBytes = Uint8List(0);
+
+  static void retain() {
+    if (_users++ == 0) {
+      _refresh(DateTime.now());
+      _timer = Timer.periodic(
+        const Duration(milliseconds: 500),
+        (_) => _refresh(DateTime.now()),
+      );
+    }
+  }
+
+  static void release() {
+    assert(_users > 0, 'release() without retain()');
+    if (--_users == 0) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
 
   static Uint8List get dateHeaderBytes {
-    if (_timer == null) {
-      _cachedBytes = _format();
-      _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-        _cachedBytes = _format();
-      });
-    }
+    if (_timer == null) _refresh(DateTime.now());
     return _cachedBytes;
   }
 
-  static Uint8List _format() {
-    return ascii.encode('Date: ${HttpDate.format(DateTime.now())}\r\n');
+  static void _refresh(DateTime now) {
+    final second = now.millisecondsSinceEpoch ~/ 1000;
+    if (second != _cachedSecond) {
+      _cachedSecond = second;
+      _cachedBytes = ascii.encode('Date: ${HttpDate.format(now)}\r\n');
+    }
   }
 }
 
