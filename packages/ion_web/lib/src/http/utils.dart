@@ -84,6 +84,10 @@ extension CharUtils on int {
 
   @pragma('vm:prefer-inline')
   bool get isSemicolon => this == 59;
+
+  /// Space or horizontal tab.
+  @pragma('vm:prefer-inline')
+  bool get isBlank => this == 32 || this == 9;
 }
 
 extension StringAsciiCaseExtension on String {

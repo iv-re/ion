@@ -311,37 +311,22 @@ final class ChunkedBodyController extends _BaseBodyController {
       switch (_state) {
         case .size:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk header line too long',
-            );
-          }
-          _lineBytesRead++;
+          _countLineByte('Chunk header line too long');
           if (byte.isCr) {
             if (!_hasHexDigit) {
               throw const BodyControllerException('Invalid chunk size');
             }
             _state = .sizeCR;
-            pos++;
           } else if (byte.isLf) {
             if (!_hasHexDigit) {
               throw const BodyControllerException('Invalid chunk size');
             }
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
+            _endSizeLine();
           } else if (byte.isSemicolon) {
             if (!_hasHexDigit) {
               throw const BodyControllerException('Invalid chunk size');
             }
             _state = .extNameStart;
-            pos++;
           } else {
             final hex = parseHex(byte);
             if (hex < 0) {
@@ -352,269 +337,132 @@ final class ChunkedBodyController extends _BaseBodyController {
             }
             _chunkSize = (_chunkSize << 4) + hex;
             _hasHexDigit = true;
-            pos++;
           }
+          pos++;
         case .sizeCR:
-          final byte = data[pos];
-          if (!byte.isLf) {
+          if (!data[pos].isLf) {
             throw const BodyControllerException(
               'Bare CR in chunk header line',
             );
           }
           pos++;
-          _lineBytesRead = 0;
-          _hasHexDigit = false;
-          if (_chunkSize == 0) {
-            _state = .trailers;
-          } else {
-            _chunkBytesRead = 0;
-            _state = .data;
-          }
+          _endSizeLine();
         case .extNameStart:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 32 || byte == 9) {
-            pos++;
+          _countLineByte(_extensionLineTooLong);
+          if (byte.isBlank) {
+            // optional whitespace before the name
           } else if (isTchar(byte)) {
             _state = .extName;
-            pos++;
           } else {
             throw const BodyControllerException(
               'Invalid or missing chunk extension name',
             );
           }
+          pos++;
         case .extName:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
+          _countLineByte(_extensionLineTooLong);
           if (isTchar(byte)) {
-            pos++;
-          } else if (byte == 32 || byte == 9) {
+            // more of the name
+          } else if (byte.isBlank) {
             _state = .extNameAfterBws;
-            pos++;
           } else if (byte == 61) {
             _state = .extValStart;
-            pos++;
-          } else if (byte.isSemicolon) {
-            _state = .extNameStart;
-            pos++;
-          } else if (byte.isCr) {
-            _state = .sizeCR;
-            pos++;
-          } else if (byte.isLf) {
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
-          } else {
+          } else if (!_endExtension(byte)) {
             throw const BodyControllerException(
               'Invalid character in chunk extension name',
             );
           }
+          pos++;
         case .extNameAfterBws:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 32 || byte == 9) {
-            pos++;
+          _countLineByte(_extensionLineTooLong);
+          if (byte.isBlank) {
+            // more whitespace
           } else if (byte == 61) {
             _state = .extValStart;
-            pos++;
-          } else if (byte.isSemicolon) {
-            _state = .extNameStart;
-            pos++;
-          } else if (byte.isCr) {
-            _state = .sizeCR;
-            pos++;
-          } else if (byte.isLf) {
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
-          } else {
+          } else if (!_endExtension(byte)) {
             throw const BodyControllerException(
               'Unexpected character after chunk extension name',
             );
           }
+          pos++;
         case .extValStart:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 32 || byte == 9) {
-            pos++;
+          _countLineByte(_extensionLineTooLong);
+          if (byte.isBlank) {
+            // optional whitespace before the value
           } else if (byte == 34) {
             _state = .extValQuoted;
-            pos++;
           } else if (isTchar(byte)) {
             _state = .extValToken;
-            pos++;
           } else {
             throw const BodyControllerException(
               'Invalid or missing chunk extension value',
             );
           }
+          pos++;
         case .extValToken:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
+          _countLineByte(_extensionLineTooLong);
           if (isTchar(byte)) {
-            pos++;
-          } else if (byte == 32 || byte == 9) {
+            // more of the value
+          } else if (byte.isBlank) {
             _state = .extValAfterBws;
-            pos++;
-          } else if (byte.isSemicolon) {
-            _state = .extNameStart;
-            pos++;
-          } else if (byte.isCr) {
-            _state = .sizeCR;
-            pos++;
-          } else if (byte.isLf) {
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
-          } else {
+          } else if (!_endExtension(byte)) {
             throw const BodyControllerException(
               'Invalid character in chunk extension value',
             );
           }
+          pos++;
         case .extValAfterBws:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 32 || byte == 9) {
-            pos++;
-          } else if (byte.isSemicolon) {
-            _state = .extNameStart;
-            pos++;
-          } else if (byte.isCr) {
-            _state = .sizeCR;
-            pos++;
-          } else if (byte.isLf) {
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
-          } else {
+          _countLineByte(_extensionLineTooLong);
+          if (byte.isBlank) {
+            // more whitespace
+          } else if (!_endExtension(byte)) {
             throw const BodyControllerException(
               'Unexpected character after chunk extension value',
             );
           }
+          pos++;
         case .extValQuoted:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
+          _countLineByte(_extensionLineTooLong);
           if (byte == 34) {
             _state = .extValAfterQuoted;
-            pos++;
           } else if (byte == 92) {
             _state = .extValQuotedEscape;
-            pos++;
-          } else if (byte == 9 ||
+          } else if (!(byte == 9 ||
               (byte >= 32 && byte != 34 && byte != 92 && byte != 127) ||
-              byte >= 128) {
-            pos++;
-          } else {
+              byte >= 128)) {
             throw const BodyControllerException(
               'Invalid character in quoted chunk extension value',
             );
           }
+          pos++;
         case .extValQuotedEscape:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 9 || (byte >= 32 && byte <= 126) || byte >= 128) {
-            _state = .extValQuoted;
-            pos++;
-          } else {
+          _countLineByte(_extensionLineTooLong);
+          if (!(byte == 9 || (byte >= 32 && byte <= 126) || byte >= 128)) {
             throw const BodyControllerException(
               'Invalid escape sequence in quoted chunk extension value',
             );
           }
+          _state = .extValQuoted;
+          pos++;
         case .extValAfterQuoted:
           final byte = data[pos];
-          if (_lineBytesRead >= _maxLineBytes) {
-            throw const BodyControllerException(
-              'Chunk extension line too long',
-            );
-          }
-          _lineBytesRead++;
-          if (byte == 32 || byte == 9) {
-            pos++;
-          } else if (byte.isSemicolon) {
-            _state = .extNameStart;
-            pos++;
-          } else if (byte.isCr) {
-            _state = .sizeCR;
-            pos++;
-          } else if (byte.isLf) {
-            pos++;
-            _lineBytesRead = 0;
-            _hasHexDigit = false;
-            if (_chunkSize == 0) {
-              _state = .trailers;
-            } else {
-              _chunkBytesRead = 0;
-              _state = .data;
-            }
-          } else {
+          _countLineByte(_extensionLineTooLong);
+          if (byte.isBlank) {
+            // optional whitespace after the value
+          } else if (!_endExtension(byte)) {
             throw const BodyControllerException(
               'Unexpected character after quoted chunk extension value',
             );
           }
+          pos++;
         case .data:
           final remainingInChunk = _chunkSize - _chunkBytesRead;
           final remainingInData = data.length - pos;
@@ -701,6 +549,44 @@ final class ChunkedBodyController extends _BaseBodyController {
     }
 
     return _emptyBytes;
+  }
+
+  static const _extensionLineTooLong = 'Chunk extension line too long';
+
+  /// Counts one more byte of the current chunk-size line, which is limited to
+  /// [_maxLineBytes].
+  void _countLineByte(String tooLongMessage) {
+    if (_lineBytesRead >= _maxLineBytes) {
+      throw BodyControllerException(tooLongMessage);
+    }
+    _lineBytesRead++;
+  }
+
+  /// The chunk-size line ended: data follows, or trailers for the last chunk.
+  void _endSizeLine() {
+    _lineBytesRead = 0;
+    _hasHexDigit = false;
+    if (_chunkSize == 0) {
+      _state = .trailers;
+    } else {
+      _chunkBytesRead = 0;
+      _state = .data;
+    }
+  }
+
+  /// Handles a byte that may end a chunk extension: `;` starts the next one,
+  /// CR or LF ends the line. Returns `false` for any other byte.
+  bool _endExtension(int byte) {
+    if (byte.isSemicolon) {
+      _state = .extNameStart;
+    } else if (byte.isCr) {
+      _state = .sizeCR;
+    } else if (byte.isLf) {
+      _endSizeLine();
+    } else {
+      return false;
+    }
+    return true;
   }
 
   @override
