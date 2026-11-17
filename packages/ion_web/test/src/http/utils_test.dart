@@ -103,7 +103,7 @@ void main() {
     });
   });
 
-  group('ByteWriter and ByteWriterPool', () {
+  group('ByteWriter', () {
     test('ByteWriter writes bytes, ints, strings and auto-grows', () {
       final writer = ByteWriter(Uint8List(4));
       writer.addByte(0x48); // 'H'
@@ -124,32 +124,6 @@ void main() {
       writer.reset();
       expect(writer.pos, equals(0));
       expect(writer.view(), isEmpty);
-    });
-
-    test('ByteWriterPool acquires and releases buffers up to max capacity', () {
-      final pool = ByteWriterPool(initialCapacity: 16, maxPoolCapacity: 2);
-      final b1 = pool.acquire();
-      expect(b1.bytes.length, equals(16));
-      b1.addAsciiString('test');
-
-      final b2 = pool.acquire();
-      b2.addAsciiString('test2');
-
-      pool.release(b1);
-      pool.release(b2);
-
-      // Re-acquire should reuse pooled buffer
-      final b3 = pool.acquire();
-      expect(b3.pos, equals(0)); // verify reset was called
-
-      final b4 = pool.acquire();
-      expect(b4.pos, equals(0));
-
-      // Releasing when pool is at max capacity ignores extra buffers
-      final b5 = ByteWriter(Uint8List(16));
-      pool.release(b1);
-      pool.release(b2);
-      pool.release(b5); // pool already full at capacity=2
     });
   });
 

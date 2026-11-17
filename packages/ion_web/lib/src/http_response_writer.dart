@@ -13,7 +13,13 @@ typedef ResponseWriteResult = (
 );
 
 abstract final class HttpResponseWriter {
-  static final ByteWriterPool _pool = ByteWriterPool();
+  /// Bodies up to this size are sent in the same buffer as the headers.
+  static const int _maxInlineBodyBytes = 4096;
+
+  /// Initial room for the response head. Typical heads fit; [ByteWriter]
+  /// grows when they don't. Not estimated up front, because
+  /// `TypedHeader.value` builds its string on every call.
+  static const int _headBytes = 512;
 
   static final Uint8List _crlf = Uint8List.fromList([13, 10]);
   static final Uint8List _connectionKeepAlive = ascii.encode(
@@ -58,82 +64,86 @@ abstract final class HttpResponseWriter {
     var hasDate = false;
     var hasTransferEncoding = false;
 
-    final buf = _pool.acquire();
-    try {
-      buf.addBytes(_statusLine(status));
+    final inlineBody = switch (body) {
+      BytesResponseBody(:final bytes)
+          when method != .head && bytes.length <= _maxInlineBodyBytes =>
+        bytes,
+      _ => null,
+    };
 
-      final contentLength = body.contentLength;
-      if (contentLength != null) {
-        buf.addBytes(_contentLengthPrefix);
-        buf.addInt(contentLength);
-        buf.addBytes(_crlf);
-      }
+    // A fresh buffer per response: the socket keeps a reference to the bytes
+    // until they are actually written, so the buffer must never be reused.
+    final buf = ByteWriter(
+      Uint8List(_headBytes + (inlineBody?.length ?? 0)),
+    );
+    buf.addBytes(_statusLine(status));
 
-      for (var i = 0; i < headers.length; i++) {
-        if (headers._isDuplicateAt(i)) continue;
-
-        final header = headers[i];
-        final key = header.name;
-        final value = header.value;
-
-        switch (key.length) {
-          case 10 when key.equalsIgnoreAsciiCase('connection'):
-            hasKeepAlive = true;
-            effectiveKeepAlive = value == 'keep-alive';
-          case 4 when key.equalsIgnoreAsciiCase('date'):
-            hasDate = true;
-          case 17 when key.equalsIgnoreAsciiCase('transfer-encoding'):
-            hasTransferEncoding = true;
-        }
-
-        buf.addHeader(key, value);
-      }
-
-      if (contentLength == null && !hasTransferEncoding) {
-        buf.addBytes(_transferEncodingChunked);
-      }
-
-      if (!hasKeepAlive) {
-        buf.addBytes(
-          effectiveKeepAlive ? _connectionKeepAlive : _connectionClose,
-        );
-      }
-
-      if (!hasDate) {
-        buf.addBytes(_HttpDateCache.dateHeaderBytes);
-      }
-
+    final contentLength = body.contentLength;
+    if (contentLength != null) {
+      buf.addBytes(_contentLengthPrefix);
+      buf.addInt(contentLength);
       buf.addBytes(_crlf);
+    }
 
-      // For HEAD requests, write headers only and return
-      if (method == .head) {
-        final headBytesCount = buf.pos;
-        socket.add(buf.view());
-        return (headBytesCount, effectiveKeepAlive);
+    for (var i = 0; i < headers.length; i++) {
+      if (headers._isDuplicateAt(i)) continue;
+
+      final header = headers[i];
+      final key = header.name;
+      final value = header.value;
+
+      switch (key.length) {
+        case 10 when key.equalsIgnoreAsciiCase('connection'):
+          hasKeepAlive = true;
+          effectiveKeepAlive = value == 'keep-alive';
+        case 4 when key.equalsIgnoreAsciiCase('date'):
+          hasDate = true;
+        case 17 when key.equalsIgnoreAsciiCase('transfer-encoding'):
+          hasTransferEncoding = true;
       }
 
-      // If body fits in buffer capacity, pack headers and body in one socket
-      // write
-      if (body case BytesResponseBody(:final bytes)) {
-        if (buf.pos + bytes.length <= buf.bytes.length) {
-          if (bytes.isNotEmpty) {
-            buf.addBytes(bytes);
-          }
-          final totalBytesWritten = buf.pos;
-          socket.add(buf.view());
-          return (totalBytesWritten, effectiveKeepAlive);
-        }
-      }
+      buf.addHeader(key, value);
+    }
 
-      // For streaming or large body, write headers first, then body payload
+    if (contentLength == null && !hasTransferEncoding) {
+      buf.addBytes(_transferEncodingChunked);
+    }
+
+    if (!hasKeepAlive) {
+      buf.addBytes(
+        effectiveKeepAlive ? _connectionKeepAlive : _connectionClose,
+      );
+    }
+
+    if (!hasDate) {
+      buf.addBytes(_HttpDateCache.dateHeaderBytes);
+    }
+
+    buf.addBytes(_crlf);
+
+    // For HEAD requests, write headers only and return
+    if (method == .head) {
       final headBytesCount = buf.pos;
       socket.add(buf.view());
-
-      final bodyBytesWritten = await body.writeTo(socket);
-      return (headBytesCount + bodyBytesWritten, effectiveKeepAlive);
-    } finally {
-      _pool.release(buf);
+      return (headBytesCount, effectiveKeepAlive);
     }
+
+    // A small body is packed with the headers into one socket write
+    if (inlineBody != null) {
+      if (inlineBody.isNotEmpty) {
+        buf.addBytes(inlineBody);
+      }
+      final totalBytesWritten = buf.pos;
+      socket.add(buf.view());
+      return (totalBytesWritten, effectiveKeepAlive);
+    }
+
+    // For streaming or large body, write headers first, then body payload
+    final headBytesCount = buf.pos;
+    socket.add(buf.view());
+
+    final bodyBytesWritten = await body.writeTo(socket);
+    return (headBytesCount + bodyBytesWritten, effectiveKeepAlive);
   }
 
   /// Writes a 101 Switching Protocols response head to [sink].
@@ -141,26 +151,22 @@ abstract final class HttpResponseWriter {
     IOSink sink, {
     required List<TypedHeader> headers,
   }) {
-    final buf = _pool.acquire();
-    try {
-      buf.addBytes(_statusLine(101));
+    final buf = ByteWriter(Uint8List(_headBytes));
+    buf.addBytes(_statusLine(101));
 
-      for (var i = 0; i < headers.length; i++) {
-        if (headers._isDuplicateAt(i)) continue;
-        final header = headers[i];
-        buf.addHeader(header.name, header.value);
-      }
-
-      buf.addBytes(_HttpDateCache.dateHeaderBytes);
-      buf.addBytes(_crlf);
-
-      final headBytesCount = buf.pos;
-      sink.add(buf.view());
-
-      return headBytesCount;
-    } finally {
-      _pool.release(buf);
+    for (var i = 0; i < headers.length; i++) {
+      if (headers._isDuplicateAt(i)) continue;
+      final header = headers[i];
+      buf.addHeader(header.name, header.value);
     }
+
+    buf.addBytes(_HttpDateCache.dateHeaderBytes);
+    buf.addBytes(_crlf);
+
+    final headBytesCount = buf.pos;
+    sink.add(buf.view());
+
+    return headBytesCount;
   }
 }
 

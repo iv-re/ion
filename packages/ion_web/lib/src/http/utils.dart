@@ -1,34 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// A stack pool for reusable [ByteWriter] instances.
-final class ByteWriterPool {
-  ByteWriterPool({
-    this.initialCapacity = 4096,
-    this.maxPoolCapacity = 256,
-  });
-
-  final int initialCapacity;
-  final int maxPoolCapacity;
-  final List<ByteWriter> _stack = [];
-
-  ByteWriter acquire() {
-    if (_stack.isNotEmpty) {
-      final buf = _stack.removeLast();
-      buf.reset();
-      return buf;
-    }
-    return ByteWriter(Uint8List(initialCapacity));
-  }
-
-  void release(ByteWriter buf) {
-    buf.reset();
-    if (_stack.length < maxPoolCapacity) {
-      _stack.add(buf);
-    }
-  }
-}
-
 /// A growable byte buffer.
 final class ByteWriter {
   ByteWriter(this.bytes);
