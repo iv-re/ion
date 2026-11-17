@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ion_web/src/http/http.dart';
@@ -27,11 +28,18 @@ enum _ParserState {
 
 class HttpParser {
   HttpParser({
-    int maxHeaderSize = 64 * 1024,
+    this.maxHeaderSize = 64 * 1024,
     this.maxHeaderCount = 500,
-  }) : _buffer = Uint8List(maxHeaderSize);
+  }) : _buffer = Uint8List(math.min(_initialBufferSize, maxHeaderSize));
 
-  final Uint8List _buffer;
+  /// Most request heads fit; the buffer doubles up to [maxHeaderSize] for
+  /// the rest, so an idle connection does not hold [maxHeaderSize] bytes.
+  static const int _initialBufferSize = 4 * 1024;
+
+  /// The buffer the head is copied into. Header slices keep a reference to
+  /// the buffer they were cut from, so growing it leaves them valid.
+  Uint8List _buffer;
+  final int maxHeaderSize;
   final int maxHeaderCount;
   int _bufferPos = 0;
 
@@ -55,11 +63,7 @@ class HttpParser {
       _consumedBytesInLastChunk++;
       final byte = chunk[i];
 
-      if (_bufferPos >= _buffer.length) {
-        throw const HttpParserException(
-          'Request header section exceeds size limit',
-        );
-      }
+      if (_bufferPos >= _buffer.length) _growBuffer();
 
       _buffer[_bufferPos++] = byte;
 
@@ -220,6 +224,17 @@ class HttpParser {
     if (!target.startsWith('//')) return Uri.parse(target);
     final parsed = Uri.parse('http://localhost$target');
     return Uri(path: parsed.path, query: parsed.hasQuery ? parsed.query : null);
+  }
+
+  void _growBuffer() {
+    if (_buffer.length >= maxHeaderSize) {
+      throw const HttpParserException(
+        'Request header section exceeds size limit',
+      );
+    }
+    final grown = Uint8List(math.min(_buffer.length * 2, maxHeaderSize))
+      ..setRange(0, _bufferPos, _buffer);
+    _buffer = grown;
   }
 
   void _expectCrBeforeLf() {

@@ -380,6 +380,51 @@ void main() {
         );
       });
 
+      test('parses a head larger than the initial buffer, fed in pieces', () {
+        final bigParser = HttpParser();
+        final early = 'e' * 3000; // cut before the buffer grows
+        final late = 'l' * 20000; // forces it to grow several times
+        final raw = stringToBytes(
+          'GET / HTTP/1.1\r\n'
+          'X-Early: $early\r\n'
+          'X-Late: $late\r\n'
+          'Host: localhost\r\n\r\n',
+        );
+
+        HttpRequestHead? result;
+        for (var i = 0; i < raw.length; i += 1000) {
+          result = bigParser.feed(
+            raw.sublist(i, (i + 1000).clamp(0, raw.length)),
+          );
+        }
+
+        final values = {
+          for (final s in result!.headerSlices)
+            s.key.asString(): s.value.asString(),
+        };
+        expect(values['X-Early'], early);
+        expect(values['X-Late'], late);
+        expect(values['Host'], 'localhost');
+      });
+
+      test('accepts a head of exactly maxHeaderSize bytes', () {
+        const prefix = 'GET / HTTP/1.1\r\nX-Pad: ';
+        const suffix = '\r\n\r\n';
+        const limit = 10000;
+        final parserAtLimit = HttpParser(maxHeaderSize: limit);
+        final raw = stringToBytes(
+          '$prefix${'p' * (limit - prefix.length - suffix.length)}$suffix',
+        );
+        expect(raw.length, limit);
+        expect(parserAtLimit.feed(raw), isNotNull);
+
+        final overLimit = HttpParser(maxHeaderSize: limit - 1);
+        expect(
+          () => overLimit.feed(raw),
+          throwsA(isA<HttpParserException>()),
+        );
+      });
+
       test('throws when exceeding maxHeaderCount', () {
         final limitedParser = HttpParser(maxHeaderCount: 3);
         final raw = stringToBytes(
