@@ -590,6 +590,7 @@ class HttpConnection {
             final writeResult = HttpResponseWriter.write(
               socket,
               method: request.method,
+              version: request.version,
               keepAlive: keepAlive,
               status: response.status.value,
               headers: response.headers,
@@ -647,6 +648,23 @@ class HttpConnection {
           } finally {
             _cancelWriteTimer();
           }
+        } on ResponseBodyException catch (error) {
+          // The head is already on the wire: abort instead of writing a 500
+          // into the middle of the body.
+          _responseSent = true;
+          if (!_isDestroyed) {
+            _logger?.error(
+              'error in response body',
+              attrs: [
+                .error(error.error),
+                .stackTrace(error.stackTrace),
+                .string('remote_address', remoteAddress.address),
+                .int('remote_port', remotePort),
+              ],
+            );
+            _destroy();
+          }
+          return;
         } on SocketException catch (error) {
           _responseSent = true;
           if (!_isDestroyed) {

@@ -51,6 +51,16 @@ abstract final class HttpResponseWriter {
 
   /// Writes status line, headers, and body to [socket] and returns
   /// [ResponseWriteResult] with bytes written and effective keepAlive flag.
+  ///
+  /// Message framing is owned by the writer: `Content-Length`,
+  /// `Transfer-Encoding` and `Connection` entries in [headers] are not
+  /// written as is. They are derived from [body], [status], [version] and
+  /// [keepAlive] instead. A `Connection: close` in [headers] can turn
+  /// keep-alive off, but nothing in [headers] can turn it on.
+  ///
+  /// Throws [ResponseBodyException] when [body] fails after the response
+  /// head was written; the connection must then be closed without writing
+  /// anything else.
   static FutureOr<ResponseWriteResult> write(
     Socket socket, {
     required HttpMethod method,
@@ -58,15 +68,24 @@ abstract final class HttpResponseWriter {
     required int status,
     required List<TypedHeader> headers,
     required ResponseBody body,
+    HttpVersion version = .http11,
   }) async {
-    var hasKeepAlive = false;
     var effectiveKeepAlive = keepAlive;
     var hasDate = false;
-    var hasTransferEncoding = false;
 
+    // RFC 9110 §6.4.1: these responses never carry content.
+    final hasNoContent = status < 200 || status == 204 || status == 304;
+    final contentLength = hasNoContent ? null : body.contentLength;
+    // HTTP/1.0 has no chunked coding: the end of the body is the end of the
+    // connection.
+    final isCloseDelimited =
+        !hasNoContent && contentLength == null && version == .http10;
+    if (isCloseDelimited) effectiveKeepAlive = false;
+
+    final sendsBody = !hasNoContent && method != .head;
     final inlineBody = switch (body) {
       BytesResponseBody(:final bytes)
-          when method != .head && bytes.length <= _maxInlineBodyBytes =>
+          when sendsBody && bytes.length <= _maxInlineBodyBytes =>
         bytes,
       _ => null,
     };
@@ -78,11 +97,12 @@ abstract final class HttpResponseWriter {
     );
     buf.addBytes(_statusLine(status));
 
-    final contentLength = body.contentLength;
     if (contentLength != null) {
       buf.addBytes(_contentLengthPrefix);
       buf.addInt(contentLength);
       buf.addBytes(_crlf);
+    } else if (!hasNoContent && !isCloseDelimited) {
+      buf.addBytes(_transferEncodingChunked);
     }
 
     for (var i = 0; i < headers.length; i++) {
@@ -90,30 +110,23 @@ abstract final class HttpResponseWriter {
 
       final header = headers[i];
       final key = header.name;
-      final value = header.value;
 
       switch (key.length) {
         case 10 when key.equalsIgnoreAsciiCase('connection'):
-          hasKeepAlive = true;
-          effectiveKeepAlive = value == 'keep-alive';
+          if (_hasCloseToken(header.value)) effectiveKeepAlive = false;
+          continue;
+        case 14 when key.equalsIgnoreAsciiCase('content-length'):
+          continue;
+        case 17 when key.equalsIgnoreAsciiCase('transfer-encoding'):
+          continue;
         case 4 when key.equalsIgnoreAsciiCase('date'):
           hasDate = true;
-        case 17 when key.equalsIgnoreAsciiCase('transfer-encoding'):
-          hasTransferEncoding = true;
       }
 
-      buf.addHeader(key, value);
+      buf.addHeader(key, header.value);
     }
 
-    if (contentLength == null && !hasTransferEncoding) {
-      buf.addBytes(_transferEncodingChunked);
-    }
-
-    if (!hasKeepAlive) {
-      buf.addBytes(
-        effectiveKeepAlive ? _connectionKeepAlive : _connectionClose,
-      );
-    }
+    buf.addBytes(effectiveKeepAlive ? _connectionKeepAlive : _connectionClose);
 
     if (!hasDate) {
       buf.addBytes(_HttpDateCache.dateHeaderBytes);
@@ -121,8 +134,7 @@ abstract final class HttpResponseWriter {
 
     buf.addBytes(_crlf);
 
-    // For HEAD requests, write headers only and return
-    if (method == .head) {
+    if (!sendsBody) {
       final headBytesCount = buf.pos;
       socket.add(buf.view());
       return (headBytesCount, effectiveKeepAlive);
@@ -142,8 +154,19 @@ abstract final class HttpResponseWriter {
     final headBytesCount = buf.pos;
     socket.add(buf.view());
 
-    final bodyBytesWritten = await body.writeTo(socket);
+    final bodyBytesWritten = await body.writeTo(
+      socket,
+      isChunked: contentLength == null && !isCloseDelimited,
+    );
     return (headBytesCount + bodyBytesWritten, effectiveKeepAlive);
+  }
+
+  /// Whether a `Connection` header value lists the `close` option.
+  static bool _hasCloseToken(String value) {
+    for (final token in value.split(',')) {
+      if (token.trim().equalsIgnoreAsciiCase('close')) return true;
+    }
+    return false;
   }
 
   /// Writes a 101 Switching Protocols response head to [sink].
@@ -251,8 +274,25 @@ abstract final class _HttpDateCache {
   }
 }
 
+/// Thrown by [HttpResponseWriter.write] when the response body fails after
+/// the response head has already been written.
+///
+/// Nothing more can be written on that connection: the client has started
+/// reading a response, so it has to be aborted.
+class ResponseBodyException implements Exception {
+  const ResponseBodyException(this.error, this.stackTrace);
+
+  /// The error raised by the body stream, or a [StateError] when the stream
+  /// did not match its declared content length.
+  final Object error;
+  final StackTrace stackTrace;
+
+  @override
+  String toString() => 'ResponseBodyException: $error';
+}
+
 extension on ResponseBody {
-  FutureOr<int> writeTo(Socket socket) {
+  FutureOr<int> writeTo(Socket socket, {required bool isChunked}) {
     return switch (this) {
       EmptyResponseBody() => 0,
       BytesResponseBody(:final bytes) => _writeBytes(socket, bytes),
@@ -260,6 +300,7 @@ extension on ResponseBody {
         socket,
         stream,
         contentLength: contentLength,
+        isChunked: isChunked,
       ),
     };
   }
@@ -275,11 +316,12 @@ extension on ResponseBody {
     Socket socket,
     Stream<Uint8List> stream, {
     required int? contentLength,
+    required bool isChunked,
   }) async {
     final iterator = StreamIterator(stream);
     try {
       var bodyBytesWritten = 0;
-      final isChunked = contentLength == null;
+      var payloadBytes = 0;
       while (true) {
         final moveNextFuture = iterator.moveNext();
 
@@ -291,11 +333,27 @@ extension on ResponseBody {
           await socket.flush();
         }
 
-        final hasNext = await moveNextFuture;
+        final bool hasNext;
+        try {
+          hasNext = await moveNextFuture;
+        } catch (error, stackTrace) {
+          throw ResponseBodyException(error, stackTrace);
+        }
         if (!hasNext) break;
 
         final chunk = iterator.current;
         if (chunk.isEmpty) continue;
+
+        payloadBytes += chunk.length;
+        if (contentLength != null && payloadBytes > contentLength) {
+          throw ResponseBodyException(
+            StateError(
+              'Response body stream exceeds its content length of '
+              '$contentLength bytes',
+            ),
+            StackTrace.current,
+          );
+        }
 
         if (isChunked) {
           final hexScratch = Uint8List(20);
@@ -310,6 +368,16 @@ extension on ResponseBody {
           socket.add(chunk);
           bodyBytesWritten += chunk.length;
         }
+      }
+
+      if (contentLength != null && payloadBytes < contentLength) {
+        throw ResponseBodyException(
+          StateError(
+            'Response body stream ended after $payloadBytes of '
+            '$contentLength bytes',
+          ),
+          StackTrace.current,
+        );
       }
 
       if (isChunked) {

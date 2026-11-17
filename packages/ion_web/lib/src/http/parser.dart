@@ -132,7 +132,7 @@ class HttpParser {
 
             final Uri uri;
             try {
-              uri = .parse(_url!);
+              uri = _parseTarget(_url!);
             } on FormatException {
               throw const HttpParserException('Invalid URI');
             }
@@ -209,6 +209,17 @@ class HttpParser {
     _headerSlices.clear();
     _token.invalidate();
     _token = SliceBufferToken();
+  }
+
+  /// Parses a request-target (RFC 9112 §3.2).
+  ///
+  /// In origin-form (`/path?query`) a leading `//` belongs to the path:
+  /// `Uri.parse('//admin/secret')` would read `admin` as a host and route the
+  /// request to `/secret`.
+  static Uri _parseTarget(String target) {
+    if (!target.startsWith('//')) return Uri.parse(target);
+    final parsed = Uri.parse('http://localhost$target');
+    return Uri(path: parsed.path, query: parsed.hasQuery ? parsed.query : null);
   }
 
   void _expectCrBeforeLf() {
